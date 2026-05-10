@@ -1,0 +1,18 @@
+app = "job-autopilot"
+primary_region = "sin"  # Singapore — closest to India
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LOG_LEVEL = "INFO"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[deploy]
+  strategy = "immediate"
+
+# No HTTP service needed — this is a background worker, not a web server
