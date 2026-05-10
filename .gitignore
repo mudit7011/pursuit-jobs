@@ -1,4 +1,5 @@
 .env
+.env.local
 *.session
 __pycache__/
 *.pyc
@@ -6,3 +7,6 @@ __pycache__/
 logs/*.log
 output/
 .pytest_cache/
+*.key
+*.pem
+service-account*.json
