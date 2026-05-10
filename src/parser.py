@@ -5,7 +5,7 @@ from src.config import GEMINI_API_KEY
 from src.models import JobPosting, ApplyType
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 def _build_prompt(message: str) -> str:
     return f"""Extract job details from this Telegram message. Return ONLY valid JSON, no markdown, no explanation.

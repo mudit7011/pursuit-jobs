@@ -21,8 +21,9 @@ def format_success(company: str, role: str, apply_type: str, target: str) -> str
 
 
 def format_error(company: str, role: str, error: str) -> str:
+    truncated = error[:300] + "…" if len(error) > 300 else error
     return (
         f"❌ Apply failed!\n"
         f"🏢 {company} — {role}\n"
-        f"⚠️ Error: {error}\n"
+        f"⚠️ Error: {truncated}\n"
     )
