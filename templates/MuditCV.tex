@@ -1,0 +1,170 @@
+%-------------------------
+% Resume in Latex
+% Author : Jake Gutierrez
+% Based off of: https://github.com/sb2nov/resume
+% License : MIT
+%------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\usepackage[dvipsnames]{xcolor}
+\definecolor{LinkBlue}{RGB}{0, 102, 204}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+\begin{document}
+
+\begin{center}
+  \textbf{\Huge \scshape Mudit Kumar} \\ \vspace{4pt}
+  \small +91 8533888088 $|$
+  \href{mailto:muditkumar7011@gmail.com}{\textcolor{LinkBlue}{muditkumar7011@gmail.com}} $|$
+  \href{https://linkedin.com/in/mudit-dev}{\textcolor{LinkBlue}{linkedin.com/in/mudit-dev}}
+\end{center}
+
+%-----------SKILLS-----------
+\section{Technical Skills}
+\begin{itemize}[leftmargin=0.15in, label={}]
+  \small{
+    \item{
+      \textbf{Languages:} Python, TypeScript, JavaScript \\
+      \textbf{Backend \& API:} Node.js, Express.js, FastAPI, REST APIs, Webhooks, OAuth 2.0 \\
+      \textbf{AI \& Automation:} Claude Code, LLM APIs, Gemini API, n8n, Zapier, Make.com \\
+      \textbf{Databases:} MongoDB, Supabase, Firebase/Firestore, SQLite, SQL \\
+      \textbf{Tools \& Cloud:} Git, AWS, Postman, Vercel, Docker (basics), Bubble.io \\
+    }
+  }
+\end{itemize}
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {Backend \& DevOps Developer}{Aug 2025 -- Feb 2026}
+      {Nedzo AI}{Remote}
+      \resumeItemListStart
+        \resumeItem{Owned and shipped production-grade backend integrations with multiple third-party platforms via REST APIs, webhooks, and OAuth 2.0 --- handling auth flows, retries, and failure recovery end-to-end.}
+        \resumeItem{Built scalable automation workflows using n8n, Zapier, and Make.com for real-time data sync, lead routing, and notifications, reducing manual intervention across business pipelines.}
+        \resumeItem{Designed event-driven systems with robust retry and failure-handling logic, improving pipeline reliability and SLA compliance in a production environment.}
+        \resumeItem{Leveraged LLM APIs (Claude, OpenAI) for AI-assisted development workflows --- automating text processing, summarization, and code generation tasks.}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {Backend Developer}{March 2025 -- June 2025}
+      {Kushel Digi Solutions}{On-site}
+      \resumeItemListStart
+        \resumeItem{Designed and scaled REST APIs for a production eCommerce platform, writing clean, maintainable code with attention to performance and correctness.}
+        \resumeItem{Optimized MongoDB queries and refactored backend logic, improving system performance by \textbf{40\%} under real production traffic.}
+        \resumeItem{Built content management features that improved seller workflows and reduced update turnaround time by \textbf{25\%}, collaborating closely with product and QA teams.}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\section{Projects}
+
+  \resumeSubHeadingListStart
+
+    \resumeProjectHeading
+      {\textbf{FootPrints} $|$ \emph{Next.js, Node.js, Firebase, TypeScript, MapBox, Gemini API}}{\href{https://footprints.website}{\textcolor{LinkBlue}{\underline{Live Demo}}}}
+      \resumeItemListStart
+        \resumeItem{Built and shipped a production cross-platform app (web + iOS/Android) with real-time Firestore sync, Google OAuth, and Firebase App Check (reCAPTCHA v3) for abuse prevention.}
+        \resumeItem{Integrated Gemini API for AI-generated captions, memory summaries, and monthly recap features --- applying AI-assisted workflows directly within a customer-facing product.}
+        \resumeItem{Engineered an interactive geotagged map with custom markers and offline persistence; implemented dynamic OG images, XML sitemaps, and JSON-LD SEO for production readiness.}
+        \resumeItem{Automated album generation via reverse geocoding and AI integrations, reducing manual input and improving the core user experience loop.}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Personal Finance Tracker} $|$ \emph{Next.js, Node.js, MongoDB, Recharts, Flask, SQLite}}{\href{https://finance-tracker-opal-omega.vercel.app/}{\textcolor{LinkBlue}{\underline{Live Demo}}}}
+      \resumeItemListStart
+        \resumeItem{Built a full-stack financial management app with secure authentication, encrypted data storage, and real-time analytics dashboards --- deployed and live on Vercel.}
+        \resumeItem{Implemented interactive visualizations using Recharts and designed RESTful APIs consumed by the frontend for transaction tracking and spend insights.}
+        \resumeItem{Applied clean architecture principles across a multi-service stack (Next.js frontend, Node.js + Flask APIs, MongoDB + SQLite databases).}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {B.Tech in Computer Science Engineering}{2020 -- 2024}
+      {Dr APJ Abdul Kalam Technical University, Lucknow}{CGPA: 7.49}
+  \resumeSubHeadingListEnd
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Intermediate (Class 12th)}{2020}
+      {Khalsa Montessori Senior Secondary School, Bulandshahr}{Percentage: 67.4\%}
+  \resumeSubHeadingListEnd
+
+\end{document}
