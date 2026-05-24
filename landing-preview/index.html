@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Job Autopilot — Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #080808;
+    --bg2: #0f0f0f;
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,0.12);
+    --white: #ffffff;
+    --zinc: #a1a1aa;
+    --zinc-dark: #27272a;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 24px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(15,15,15,0.7);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 6px 6px 6px 16px;
+  }
+
+  .nav-logo {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    color: var(--white);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-right: 12px;
+    border-right: 1px solid var(--border);
+    margin-right: 8px;
+  }
+
+  .nav-logo-dot {
+    width: 6px; height: 6px;
+    background: var(--amber);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.75); }
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-size: 12.5px;
+    color: var(--zinc);
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 100px;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--white); background: rgba(255,255,255,0.06); }
+
+  .nav-cta {
+    background: var(--amber);
+    color: #000;
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 7px 16px;
+    border-radius: 100px;
+    text-decoration: none;
+    margin-left: 6px;
+    transition: opacity 0.2s;
+  }
+
+  .nav-cta:hover { opacity: 0.85; }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    height: 100vh;
+    min-height: 700px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .hero-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+  }
+
+  .hero-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(8,8,8,0.3) 0%,
+      rgba(8,8,8,0.25) 30%,
+      rgba(8,8,8,0.6) 70%,
+      rgba(8,8,8,1) 100%
+    );
+    z-index: 1;
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    max-width: 760px;
+    padding: 0 24px;
+    animation: fadeUp 0.9s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(28px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--amber-dim);
+    border: 1px solid rgba(245,158,11,0.25);
+    color: var(--amber);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: 100px;
+    margin-bottom: 28px;
+    animation: fadeUp 0.9s 0.1s ease both;
+  }
+
+  .hero-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: clamp(52px, 8vw, 96px);
+    font-weight: 400;
+    line-height: 1.0;
+    letter-spacing: -1px;
+    margin-bottom: 24px;
+    animation: fadeUp 0.9s 0.2s ease both;
+  }
+
+  .hero-title em {
+    font-style: italic;
+    color: var(--amber);
+  }
+
+  .hero-sub {
+    font-size: clamp(15px, 2vw, 18px);
+    color: var(--zinc);
+    line-height: 1.65;
+    max-width: 540px;
+    margin: 0 auto 38px;
+    font-weight: 400;
+    animation: fadeUp 0.9s 0.3s ease both;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    animation: fadeUp 0.9s 0.4s ease both;
+  }
+
+  .btn-primary {
+    background: var(--amber);
+    color: #000;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 12px 26px;
+    border-radius: 7px;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--white);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 26px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+
+  .btn-secondary:hover { border-color: rgba(255,255,255,0.25); transform: translateY(-1px); }
+
+  /* ── STATS ── */
+  .stats {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    padding: 36px 48px;
+  }
+
+  .stats-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+  }
+
+  .stat-item {
+    text-align: center;
+    padding: 8px 24px;
+    border-right: 1px solid var(--border);
+  }
+
+  .stat-item:last-child { border-right: none; }
+
+  .stat-number {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    color: var(--white);
+    line-height: 1;
+  }
+
+  .stat-number span { color: var(--amber); }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--zinc);
+    margin-top: 6px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ── SECTIONS SHARED ── */
+  .section {
+    padding: 100px 48px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 14px;
+  }
+
+  .section-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: clamp(32px, 4vw, 52px);
+    font-weight: 400;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+
+  .section-sub {
+    font-size: 16px;
+    color: var(--zinc);
+    line-height: 1.7;
+    max-width: 520px;
+  }
+
+  /* ── HOW IT WORKS ── */
+  .hiw-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    margin-top: 60px;
+    position: relative;
+  }
+
+  .hiw-steps::before {
+    content: '';
+    position: absolute;
+    top: 28px;
+    left: 16%;
+    right: 16%;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--amber-dim), var(--amber-dim), transparent);
+  }
+
+  .hiw-step {
+    text-align: center;
+    padding: 0 32px;
+  }
+
+  .hiw-icon {
+    width: 56px; height: 56px;
+    background: var(--amber-dim);
+    border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    font-size: 24px;
+  }
+
+  .hiw-step-num {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 10px;
+  }
+
+  .hiw-step-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 20px;
+    font-weight: 400;
+    margin-bottom: 10px;
+    letter-spacing: -0.2px;
+  }
+
+  .hiw-step-desc {
+    font-size: 13.5px;
+    color: var(--zinc);
+    line-height: 1.65;
+  }
+
+  /* ── FEATURES ── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-top: 56px;
+  }
+
+  .feature-card {
+    background: var(--bg);
+    padding: 32px 28px;
+    transition: background 0.2s;
+  }
+
+  .feature-card:hover { background: #111; }
+
+  .feature-icon {
+    font-size: 26px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .feature-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 18px;
+    font-weight: 400;
+    margin-bottom: 8px;
+    letter-spacing: -0.1px;
+  }
+
+  .feature-desc {
+    font-size: 13px;
+    color: var(--zinc);
+    line-height: 1.65;
+  }
+
+  /* ── TECH STACK ── */
+  .tech-section {
+    padding: 80px 48px;
+    border-top: 1px solid var(--border);
+    background: var(--bg2);
+  }
+
+  .tech-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .tech-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--zinc);
+    margin-bottom: 32px;
+  }
+
+  .tech-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .tech-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--zinc);
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .tech-pill:hover { border-color: var(--amber); color: var(--white); }
+
+  /* ── TERMINAL DEMO ── */
+  .demo-section {
+    padding: 100px 48px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .terminal {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 56px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .terminal-header {
+    background: #141414;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .terminal-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+
+  .t-red { background: #ff5f57; }
+  .t-yellow { background: #ffbd2e; }
+  .t-green { background: #28ca41; }
+
+  .terminal-title {
+    font-size: 12px;
+    color: var(--zinc);
+    margin-left: 8px;
+  }
+
+  .terminal-body {
+    padding: 28px 28px;
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .t-dim { color: #555; }
+  .t-white { color: #e4e4e7; }
+  .t-amber { color: var(--amber); }
+  .t-green-txt { color: #4ade80; }
+  .t-blue { color: #60a5fa; }
+  .t-red-txt { color: #f87171; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 48px;
+    text-align: center;
+  }
+
+  .footer-inner {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .footer-logo {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 16px;
+  }
+
+  .footer-love {
+    font-size: 13px;
+    color: var(--zinc);
+    margin-bottom: 24px;
+    line-height: 1.7;
+  }
+
+  .footer-links {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+
+  .footer-links a {
+    color: var(--zinc);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color 0.2s;
+  }
+
+  .footer-links a:hover { color: var(--white); }
+
+  .footer-copy {
+    font-size: 12px;
+    color: #3f3f46;
+  }
+
+  /* ── SCROLL REVEAL ── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .reveal-delay-1 { transition-delay: 0.1s; }
+  .reveal-delay-2 { transition-delay: 0.2s; }
+  .reveal-delay-3 { transition-delay: 0.3s; }
+  .reveal-delay-4 { transition-delay: 0.4s; }
+  .reveal-delay-5 { transition-delay: 0.5s; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <div class="nav-logo-dot"></div>
+      JobAutopilot
+    </div>
+    <ul class="nav-links">
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#stack">Stack</a></li>
+    </ul>
+    <a href="#" class="nav-cta">GitHub →</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <video class="hero-video" autoplay loop muted playsinline>
+    <source src="https://res.cloudinary.com/dfonotyfb/video/upload/v1775585556/dds3_1_rqhg7x.mp4" type="video/mp4" />
+  </video>
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="hero-badge">⚡ Open Source &nbsp;·&nbsp; Free Forever</div>
+    <h1 class="hero-title">Your job search,<br />on <em>autopilot</em></h1>
+    <p class="hero-sub">Watches Telegram for job posts, checks your eligibility, tailors your resume, and fills the application — while you sleep.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn-primary">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+      <a href="#how-it-works" class="btn-secondary">See how it works ↓</a>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stats-inner">
+    <div class="stat-item reveal">
+      <div class="stat-number"><span id="s1">44</span>+</div>
+      <div class="stat-label">Tests Passing</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-1">
+      <div class="stat-number"><span id="s2">8</span></div>
+      <div class="stat-label">ATS Platforms Supported</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-2">
+      <div class="stat-number"><span id="s3">0</span></div>
+      <div class="stat-label">Manual Applications</div>
+    </div>
+    <div class="stat-item reveal reveal-delay-3">
+      <div class="stat-number"><span id="s4">100</span>%</div>
+      <div class="stat-label">Open Source</div>
+    </div>
+  </div>
+</div>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how-it-works">
+  <div class="reveal"><p class="section-eyebrow">How it works</p></div>
+  <div class="reveal reveal-delay-1">
+    <h2 class="section-title">Three steps.<br />Zero effort.</h2>
+    <p class="section-sub">From a Telegram message to a submitted application — fully automated, no manual steps.</p>
+  </div>
+
+  <div class="hiw-steps">
+    <div class="hiw-step reveal">
+      <div class="hiw-icon">📨</div>
+      <p class="hiw-step-num">Step 01</p>
+      <h3 class="hiw-step-title">Job drops in Telegram</h3>
+      <p class="hiw-step-desc">The bot monitors your Telegram job groups 24/7. The moment a job is posted, it's picked up and parsed automatically.</p>
+    </div>
+    <div class="hiw-step reveal reveal-delay-2">
+      <div class="hiw-icon">🧠</div>
+      <p class="hiw-step-num">Step 02</p>
+      <h3 class="hiw-step-title">Checks eligibility & tailors resume</h3>
+      <p class="hiw-step-desc">Compares the job against your profile — batch year, experience, skills. If you're a fit, your resume gets tailored on the spot.</p>
+    </div>
+    <div class="hiw-step reveal reveal-delay-4">
+      <div class="hiw-icon">✅</div>
+      <p class="hiw-step-num">Step 03</p>
+      <h3 class="hiw-step-title">Form filled & submitted</h3>
+      <p class="hiw-step-desc">Whether it's an email, Google Form, Greenhouse, Lever, or Workday — the bot fills it and submits. You get notified when it's done.</p>
+    </div>
+  </div>
+</section>
+
+<!-- TERMINAL DEMO -->
+<section class="demo-section">
+  <div class="reveal"><p class="section-eyebrow">Live in action</p></div>
+  <div class="reveal reveal-delay-1">
+    <h2 class="section-title">Watch it work.</h2>
+    <p class="section-sub">Real output from a real job application — zero human input after setup.</p>
+  </div>
+  <div class="terminal reveal reveal-delay-2">
+    <div class="terminal-header">
+      <div class="terminal-dot t-red"></div>
+      <div class="terminal-dot t-yellow"></div>
+      <div class="terminal-dot t-green"></div>
+      <span class="terminal-title">job-autopilot — run.sh</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-dim">$</span> <span class="t-white">python -m src.main</span></div>
+      <div><span class="t-dim">→</span> <span class="t-white">Watching Telegram for new jobs...</span></div>
+      <br/>
+      <div><span class="t-amber">📨 New job detected:</span> <span class="t-white">SynthioLabs — Software Engineer</span></div>
+      <div><span class="t-dim">   Parsing job details...</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Company: SynthioLabs &nbsp; Role: SWE &nbsp; Batch: 2024</span></div>
+      <br/>
+      <div><span class="t-amber">🔍 Checking eligibility...</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Batch year: 2024 ✓</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Experience: 0-1 yrs required, you have 2 ✓</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Skills overlap: 74% — eligible</span></div>
+      <br/>
+      <div><span class="t-amber">📄 Tailoring resume for SWE role...</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Resume compiled: SynthioLabs_SWE.pdf</span></div>
+      <br/>
+      <div><span class="t-amber">🌐 Opening Greenhouse form...</span></div>
+      <div><span class="t-dim">   Extracting 12 form fields...</span></div>
+      <div><span class="t-dim">   Generating answers with Gemini...</span></div>
+      <div><span class="t-dim">   Filling: name, email, phone, linkedin...</span></div>
+      <div><span class="t-dim">   Uploading resume PDF...</span></div>
+      <div><span class="t-green-txt">✓</span> <span class="t-white">Form submitted successfully</span></div>
+      <br/>
+      <div><span class="t-green-txt">🎉 Applied to SynthioLabs — SWE</span> <span class="t-dim">(logged to applications.db)</span></div>
+      <div><span class="t-dim">   Notification sent → Telegram</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section" id="features" style="padding-top: 20px;">
+  <div class="reveal"><p class="section-eyebrow">Features</p></div>
+  <div class="reveal reveal-delay-1">
+    <h2 class="section-title">Built for the<br />modern job hunt.</h2>
+    <p class="section-sub">Every feature exists because job hunting is broken. This fixes it.</p>
+  </div>
+
+  <div class="features-grid">
+    <div class="feature-card reveal">
+      <span class="feature-icon">🌐</span>
+      <h3 class="feature-title">Universal Form Filling</h3>
+      <p class="feature-desc">Playwright-powered browser automation handles Greenhouse, Lever, Workday, Ashby, Microsoft Forms, and any unknown ATS — not just pre-defined templates.</p>
+    </div>
+    <div class="feature-card reveal reveal-delay-1">
+      <span class="feature-icon">🎯</span>
+      <h3 class="feature-title">Eligibility Checker</h3>
+      <p class="feature-desc">Automatically skips jobs you don't qualify for. Checks batch year, years of experience, and skill overlap before wasting a single application.</p>
+    </div>
+    <div class="feature-card reveal reveal-delay-2">
+      <span class="feature-icon">📄</span>
+      <h3 class="feature-title">Resume Tailoring</h3>
+      <p class="feature-desc">Every resume is freshly generated from your LaTeX template, tailored to the specific job's keywords, role, and company. Not one-size-fits-all.</p>
+    </div>
+    <div class="feature-card reveal reveal-delay-3">
+      <span class="feature-icon">🔁</span>
+      <h3 class="feature-title">Duplicate Prevention</h3>
+      <p class="feature-desc">SQLite tracker remembers every application. Applied to the same company + role before? The bot silently skips it, no duplicates ever.</p>
+    </div>
+    <div class="feature-card reveal reveal-delay-4">
+      <span class="feature-icon">🔔</span>
+      <h3 class="feature-title">Telegram Notifications</h3>
+      <p class="feature-desc">Get pinged the moment an application goes out — or when a CAPTCHA blocks the bot and you need to apply manually. Always in the loop.</p>
+    </div>
+    <div class="feature-card reveal reveal-delay-5">
+      <span class="feature-icon">👤</span>
+      <h3 class="feature-title">Profile-Driven</h3>
+      <p class="feature-desc">One profile.json file is the single source of truth. Name, skills, experience, expected CTC — everything lives there, works for any user.</p>
+    </div>
+  </div>
+</section>
+
+<!-- TECH STACK -->
+<div class="tech-section" id="stack">
+  <div class="tech-inner">
+    <p class="tech-label reveal">Built with</p>
+    <div class="tech-row">
+      <div class="tech-pill reveal">🐍 Python</div>
+      <div class="tech-pill reveal reveal-delay-1">🎭 Playwright</div>
+      <div class="tech-pill reveal reveal-delay-2">✨ Gemini 2.5 Flash</div>
+      <div class="tech-pill reveal reveal-delay-3">🗄️ SQLite</div>
+      <div class="tech-pill reveal reveal-delay-4">✈️ Telegram Bot API</div>
+      <div class="tech-pill reveal reveal-delay-5">📝 LaTeX</div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-logo">JobAutopilot</div>
+    <p class="footer-love">Made with love, caffeine, and too many rejected applications.<br />Because the job hunt shouldn't be a full-time job.</p>
+    <div class="footer-links">
+      <a href="#">GitHub</a>
+      <a href="#">LinkedIn</a>
+      <a href="#">Twitter</a>
+    </div>
+    <p class="footer-copy">Built by Mudit Kumar · MIT License · 2024</p>
+  </div>
+</footer>
+
+<script>
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) e.target.classList.add('visible');
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Count up animation for stats
+function countUp(el, target, duration = 1400) {
+  let start = 0;
+  const step = target / (duration / 16);
+  const timer = setInterval(() => {
+    start = Math.min(start + step, target);
+    el.textContent = Math.floor(start);
+    if (start >= target) clearInterval(timer);
+  }, 16);
+}
+
+const statsObserver = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      countUp(document.getElementById('s1'), 44);
+      countUp(document.getElementById('s2'), 8);
+      countUp(document.getElementById('s3'), 0);
+      countUp(document.getElementById('s4'), 100);
+      statsObserver.disconnect();
+    }
+  });
+}, { threshold: 0.5 });
+
+statsObserver.observe(document.querySelector('.stats'));
+</script>
+</body>
+</html>
