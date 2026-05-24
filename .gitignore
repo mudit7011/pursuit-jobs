@@ -10,3 +10,5 @@ output/
 *.key
 *.pem
 service-account*.json
+config/
+data/
