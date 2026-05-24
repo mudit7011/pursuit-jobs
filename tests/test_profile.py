@@ -1,6 +1,4 @@
-import os
 import json
-import tempfile
 import pytest
 from src.profile import load_profile, UserProfile
 
