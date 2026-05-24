@@ -15,7 +15,7 @@ class JobPosting:
     location: str
     jd_summary: str
     apply_type: ApplyType
-    apply_target: str      # email address OR Google Form URL
+    apply_target: str      # email address, Google Form URL, or ATS/web form URL
     batch: str
     raw_message: str
     is_relevant: bool = True

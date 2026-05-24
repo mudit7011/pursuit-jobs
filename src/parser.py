@@ -18,7 +18,7 @@ _ATS_DOMAINS = [
     "recruitcrm.io",
 ]
 
-_APPLY_PATH_KEYWORDS = ["/apply", "/apply/"]
+_APPLY_PATH_KEYWORDS = ["/apply"]
 
 
 def _is_web_form(url: str) -> bool:
@@ -48,7 +48,7 @@ Return this exact JSON:
   "location": "city or empty string",
   "jd_summary": "2-3 sentence summary of requirements and responsibilities",
   "apply_type": "email" or "form" or "unknown",
-  "apply_target": "email address or Google Form URL or empty string",
+  "apply_target": "email address, Google Form URL, ATS/careers page URL, or empty string",
   "batch": "graduation batch years or empty string",
   "is_relevant": true if this is a job posting else false
 }}"""
