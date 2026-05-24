@@ -1,6 +1,4 @@
-import os
-import pytest
-import tempfile
+import sqlite3
 
 # Patch DB_PATH before importing tracker
 import src.tracker as tracker_module
@@ -39,7 +37,6 @@ def test_skipped_job_not_counted_as_duplicate(tmp_path):
 
 
 def test_log_application_stores_all_fields(tmp_path):
-    import sqlite3
     tracker_module.DB_PATH = str(tmp_path / "test_applications.db")
     tracker_module.log_application(
         company="Gamma Ltd",

@@ -6,7 +6,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "applications.db
 
 
 def _get_conn() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    dir_path = os.path.dirname(DB_PATH)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS applications (
@@ -28,7 +30,7 @@ def is_duplicate(company: str, role: str) -> bool:
     """Return True if we have already successfully applied to this company+role."""
     conn = _get_conn()
     row = conn.execute(
-        "SELECT id FROM applications WHERE company = ? AND role = ? AND status = 'applied'",
+        "SELECT id FROM applications WHERE company = ? COLLATE NOCASE AND role = ? COLLATE NOCASE AND status = 'applied'",
         (company, role),
     ).fetchone()
     conn.close()
