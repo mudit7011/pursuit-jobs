@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/* ── Token System ───────────────────────────────────────── */
+:root {
+  --bg:          #0d0b09;
+  --card:        #161210;
+  --ink:         #f0ebe3;
+  --ink-dim:     #6b6258;
+  --ink-muted:   #3a3632;
+  --rust:        #EC4E02;
+  --rust-dim:    rgba(236, 78, 2, 0.08);
+  --border:      rgba(240, 235, 227, 0.07);
+  --border-warm: rgba(240, 235, 227, 0.12);
+
+  /* shadcn bridge */
+  --background:         #0d0b09;
+  --foreground:         #f0ebe3;
+  --card-bg:            #161210;
+  --card-foreground:    #f0ebe3;
+  --border-color:       rgba(240,235,227,0.07);
+  --primary:            #EC4E02;
+  --primary-foreground: #ffffff;
+  --muted:              rgba(240,235,227,0.04);
+  --muted-foreground:   #6b6258;
+
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-body:  'DM Sans', sans-serif;
+  --font-mono:  'JetBrains Mono', monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Film grain ─────────────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  opacity: 0.55;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.04'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* ── Custom cursor ──────────────────────────────────────── */
+* { cursor: none; }
+.cursor {
+  position: fixed;
+  width: 7px; height: 7px;
+  background: var(--rust);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99999;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: difference;
+  transition: transform 0.06s ease;
+}
+
+/* ── Shared section styles ──────────────────────────────── */
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+
+.section-heading {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 2px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #2a2420; }
