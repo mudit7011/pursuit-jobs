@@ -116,7 +116,11 @@ Rules:
     raw = response.text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        log.warning(f"Gemini returned malformed JSON for form answers: {e}. Returning empty answers.")
+        return {}
 
 
 def _fill_field(page: Page, field: dict, answer: str) -> None:
@@ -124,7 +128,7 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
     selector = field.get("selector") or f'[name="{field["name"]}"]'
     field_type = field.get("type", "text")
     try:
-        if field_type in ("text", "email", "tel", "number", "url", "textarea"):
+        if field_type in ("text", "email", "tel", "number", "url", "textarea", "date", "search", "password"):
             page.fill(selector, str(answer))
         elif field_type == "select":
             page.select_option(selector, label=str(answer))
@@ -164,79 +168,77 @@ def fill_web_form(
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-
         try:
-            page.goto(url, timeout=30000, wait_until="networkidle")
-        except PlaywrightTimeoutError:
-            log.warning("networkidle timeout, continuing with domcontentloaded")
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            try:
+                page.goto(url, timeout=30000, wait_until="networkidle")
+            except PlaywrightTimeoutError:
+                log.warning("networkidle timeout, continuing with domcontentloaded")
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
 
-        if _check_captcha_in_content(page.content()):
-            browser.close()
-            raise CaptchaDetectedError(f"CAPTCHA detected on {url}")
+            if _check_captcha_in_content(page.content()):
+                raise CaptchaDetectedError(f"CAPTCHA detected on {url}")
 
-        max_pages = 10
-        for _ in range(max_pages):
-            page.wait_for_timeout(1500)
+            max_pages = 10
+            for _ in range(max_pages):
+                page.wait_for_timeout(1500)
 
-            fields = page.evaluate(_EXTRACT_FIELDS_JS)
-            if not fields:
+                fields = page.evaluate(_EXTRACT_FIELDS_JS)
+                if not fields:
+                    break
+
+                answers = _generate_answers(fields, profile, jd_summary, company, role)
+
+                for field in fields:
+                    key = field.get("id") or field.get("name")
+                    if not key:
+                        continue
+                    if field.get("type") == "file":
+                        try:
+                            page.set_input_files(field["selector"], pdf_path)
+                        except Exception as e:
+                            log.warning(f"File upload failed for '{field.get('label')}': {e}")
+                        continue
+                    answer = answers.get(key)
+                    if answer and str(answer) != "RESUME_PDF":
+                        _fill_field(page, field, str(answer))
+
+                # Check for Next / Continue button
+                next_btn = None
+                for label in ["Next", "Continue", "Next Step", "Proceed"]:
+                    btn = page.get_by_role("button", name=re.compile(label, re.IGNORECASE))
+                    if btn.count() > 0:
+                        next_btn = btn.first
+                        break
+
+                if next_btn:
+                    next_btn.click()
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except PlaywrightTimeoutError:
+                        pass
+                    if _check_captcha_in_content(page.content()):
+                        raise CaptchaDetectedError(f"CAPTCHA appeared mid-form on {url}")
+                    continue
+
+                # Check for Submit button
+                submit_btn = None
+                for label in ["Submit", "Apply", "Submit Application", "Apply Now", "Send Application"]:
+                    btn = page.get_by_role("button", name=re.compile(label, re.IGNORECASE))
+                    if btn.count() > 0:
+                        submit_btn = btn.first
+                        break
+
+                if submit_btn:
+                    submit_btn.click()
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                    except PlaywrightTimeoutError:
+                        pass
+                    return True
+
+                # No Next or Submit found
                 break
 
-            answers = _generate_answers(fields, profile, jd_summary, company, role)
-
-            for field in fields:
-                key = field.get("id") or field.get("name")
-                if not key:
-                    continue
-                if field.get("type") == "file":
-                    try:
-                        page.set_input_files(field["selector"], pdf_path)
-                    except Exception as e:
-                        log.warning(f"File upload failed for '{field.get('label')}': {e}")
-                    continue
-                answer = answers.get(key)
-                if answer and str(answer) != "RESUME_PDF":
-                    _fill_field(page, field, str(answer))
-
-            # Check for Next / Continue button
-            next_btn = None
-            for label in ["Next", "Continue", "Next Step", "Proceed"]:
-                btn = page.get_by_role("button", name=re.compile(label, re.IGNORECASE))
-                if btn.count() > 0:
-                    next_btn = btn.first
-                    break
-
-            if next_btn:
-                next_btn.click()
-                try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
-                except PlaywrightTimeoutError:
-                    pass
-                if _check_captcha_in_content(page.content()):
-                    browser.close()
-                    raise CaptchaDetectedError(f"CAPTCHA appeared mid-form on {url}")
-                continue
-
-            # Check for Submit button
-            submit_btn = None
-            for label in ["Submit", "Apply", "Submit Application", "Apply Now", "Send Application"]:
-                btn = page.get_by_role("button", name=re.compile(label, re.IGNORECASE))
-                if btn.count() > 0:
-                    submit_btn = btn.first
-                    break
-
-            if submit_btn:
-                submit_btn.click()
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except PlaywrightTimeoutError:
-                    pass
-                browser.close()
-                return True
-
-            # No Next or Submit found
-            break
-
-        browser.close()
-        raise FormSubmitError(f"Could not find submit button after filling form at {url}")
+            raise FormSubmitError(f"Could not find submit button after filling form at {url}")
+        finally:
+            browser.close()
