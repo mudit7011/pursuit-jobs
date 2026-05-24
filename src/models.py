@@ -4,6 +4,7 @@ from enum import Enum
 class ApplyType(Enum):
     EMAIL = "email"
     FORM = "form"
+    WEB_FORM = "web_form"
     UNKNOWN = "unknown"
 
 @dataclass

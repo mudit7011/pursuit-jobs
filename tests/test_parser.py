@@ -58,7 +58,7 @@ def test_parse_form_job():
         mock_response.text = sample_response
         mock_model.generate_content.return_value = mock_response
         result = parse_job_message("some message text")
-    assert result.apply_type == ApplyType.FORM
+    assert result.apply_type == ApplyType.WEB_FORM
     assert "aspire" in result.apply_target
 
 def test_parse_irrelevant_message():
@@ -79,3 +79,52 @@ def test_parse_irrelevant_message():
         mock_model.generate_content.return_value = mock_response
         result = parse_job_message("Good morning everyone!")
     assert result.is_relevant is False
+
+from src.parser import _is_web_form
+
+def test_is_web_form_greenhouse():
+    assert _is_web_form("https://boards.greenhouse.io/company/jobs/123456") is True
+
+def test_is_web_form_lever():
+    assert _is_web_form("https://jobs.lever.co/company/abc123/apply") is True
+
+def test_is_web_form_workday():
+    assert _is_web_form("https://company.wd5.myworkdayjobs.com/en-US/jobs") is True
+
+def test_is_web_form_ashby():
+    assert _is_web_form("https://jobs.ashbyhq.com/company/role/apply") is True
+
+def test_is_web_form_microsoft_forms():
+    assert _is_web_form("https://forms.office.com/r/abc123") is True
+
+def test_is_web_form_bamboohr():
+    assert _is_web_form("https://company.bamboohr.com/jobs/view.php?id=123") is True
+
+def test_is_web_form_email_is_not_web_form():
+    assert _is_web_form("hr@company.com") is False
+
+def test_is_web_form_google_form_is_not_web_form():
+    assert _is_web_form("https://docs.google.com/forms/d/e/abc123/viewform") is False
+
+def test_is_web_form_empty_string_is_not_web_form():
+    assert _is_web_form("") is False
+
+def test_parse_greenhouse_url_returns_web_form():
+    sample_response = '''{
+        "company": "Acme",
+        "role": "Backend Engineer",
+        "salary": "",
+        "location": "Remote",
+        "jd_summary": "Python backend role",
+        "apply_type": "form",
+        "apply_target": "https://boards.greenhouse.io/acme/jobs/7654321",
+        "batch": "",
+        "is_relevant": true
+    }'''
+    with patch("src.parser.model") as mock_model:
+        mock_response = MagicMock()
+        mock_response.text = sample_response
+        mock_model.generate_content.return_value = mock_response
+        result = parse_job_message("some job posting text")
+    assert result.apply_type == ApplyType.WEB_FORM
+    assert "greenhouse" in result.apply_target

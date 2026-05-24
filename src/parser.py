@@ -7,6 +7,33 @@ from src.models import JobPosting, ApplyType
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
+_ATS_DOMAINS = [
+    "greenhouse.io",
+    "lever.co",
+    "workday.com",
+    "myworkdayjobs.com",
+    "ashbyhq.com",
+    "forms.office.com",
+    "bamboohr.com",
+    "recruitcrm.io",
+]
+
+_APPLY_PATH_KEYWORDS = ["/apply", "/apply/"]
+
+
+def _is_web_form(url: str) -> bool:
+    """Return True if the URL looks like an ATS or web application form."""
+    if not url or "@" in url:
+        return False
+    if "docs.google.com/forms" in url:
+        return False
+    if any(domain in url for domain in _ATS_DOMAINS):
+        return True
+    if any(kw in url for kw in _APPLY_PATH_KEYWORDS):
+        return True
+    return False
+
+
 def _build_prompt(message: str) -> str:
     return f"""Extract job details from this Telegram message. Return ONLY valid JSON, no markdown, no explanation.
 
@@ -34,18 +61,28 @@ def parse_job_message(message: str) -> JobPosting:
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     data = json.loads(raw)
-    apply_type_map = {
-        "email": ApplyType.EMAIL,
-        "form": ApplyType.FORM,
-    }
+
+    apply_type_raw = data.get("apply_type", "unknown")
+    apply_target = data.get("apply_target", "")
+
+    # Resolve apply type with WEB_FORM detection
+    if apply_type_raw == "email" and apply_target and "@" in apply_target:
+        final_apply_type = ApplyType.EMAIL
+    elif apply_type_raw == "form" and "docs.google.com/forms" in apply_target:
+        final_apply_type = ApplyType.FORM
+    elif _is_web_form(apply_target):
+        final_apply_type = ApplyType.WEB_FORM
+    else:
+        final_apply_type = ApplyType.UNKNOWN
+
     return JobPosting(
         company=data.get("company", ""),
         role=data.get("role", ""),
         salary=data.get("salary", ""),
         location=data.get("location", ""),
         jd_summary=data.get("jd_summary", ""),
-        apply_type=apply_type_map.get(data.get("apply_type", "unknown"), ApplyType.UNKNOWN),
-        apply_target=data.get("apply_target", ""),
+        apply_type=final_apply_type,
+        apply_target=apply_target,
         batch=data.get("batch", ""),
         raw_message=message,
         is_relevant=data.get("is_relevant", False),
