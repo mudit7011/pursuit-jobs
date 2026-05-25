@@ -64,7 +64,8 @@ class Renderer {
   }
 
   updateScale() {
-    const dpr = Math.max(1, window.devicePixelRatio)
+    // Cap DPR at 1 — background FBM shader doesn't need retina quality
+    const dpr = 1
     const { offsetWidth: width, offsetHeight: height } = this.canvas
     this.canvas.width = width * dpr
     this.canvas.height = height * dpr
@@ -166,15 +167,29 @@ export const SmokeBackground: React.FC<SmokeBackgroundProps> = ({
     window.addEventListener("resize", handleResize)
 
     let animationFrameId: number
+    let visible = true
+    let lastFrame = 0
+    const FRAME_INTERVAL = 1000 / 30 // 30fps cap
+
     const loop = (now: number) => {
-      renderer.render(now)
       animationFrameId = requestAnimationFrame(loop)
+      if (!visible) return
+      if (now - lastFrame < FRAME_INTERVAL) return
+      lastFrame = now
+      renderer.render(now)
     }
-    loop(0)
+    animationFrameId = requestAnimationFrame(loop)
+
+    const observer = new IntersectionObserver(
+      ([entry]) => { visible = entry.isIntersecting },
+      { threshold: 0 }
+    )
+    observer.observe(canvas)
 
     return () => {
       window.removeEventListener("resize", handleResize)
       cancelAnimationFrame(animationFrameId)
+      observer.disconnect()
       renderer.reset()
     }
   }, [])

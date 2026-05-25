@@ -28,17 +28,17 @@ export default function Nav() {
   const borderRadius = useMotionTemplate`${radiusNum}px`
 
   // Visual only
-  const bgAlpha     = useTransform(scrollY, [0, 80], [0, 0.78])
+  const bgAlpha     = useTransform(scrollY, [0, 80], [0, 0.48])
   const bg          = useMotionTemplate`rgba(13,11,9,${bgAlpha})`
 
-  const blurPx      = useTransform(scrollY, [0, 80], [0, 20])
-  const blur        = useMotionTemplate`blur(${blurPx}px) saturate(160%)`
+  const blurPx      = useTransform(scrollY, [0, 80], [0, 28])
+  const blur        = useMotionTemplate`blur(${blurPx}px) saturate(200%)`
 
-  const borderAlpha = useTransform(scrollY, [0, 80], [0, 0.1])
+  const borderAlpha = useTransform(scrollY, [0, 80], [0, 0.18])
   const border      = useMotionTemplate`1px solid rgba(240,235,227,${borderAlpha})`
 
-  const shadowAlpha = useTransform(scrollY, [0, 80], [0, 0.5])
-  const shadow      = useMotionTemplate`0 8px 40px rgba(0,0,0,${shadowAlpha}), inset 0 1px 0 rgba(240,235,227,0.05)`
+  const shadowAlpha = useTransform(scrollY, [0, 80], [0, 0.55])
+  const shadow      = useMotionTemplate`0 8px 48px rgba(0,0,0,${shadowAlpha}), inset 0 1px 0 rgba(240,235,227,0.10), inset 0 -1px 0 rgba(0,0,0,0.2)`
 
   return (
     <motion.header
@@ -67,24 +67,38 @@ export default function Nav() {
         }}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <motion.span
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ background: "var(--rust)" }}
-            animate={{ opacity: [1, 0.4, 1] }}
-            transition={{ duration: 2.5, repeat: Infinity }}
-          />
+        <a href="/" className="flex items-center gap-2.5 shrink-0" style={{ textDecoration: "none" }}>
+          {/* Terminal badge mark */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "30px",
+            height: "22px",
+            borderRadius: "5px",
+            border: "1px solid rgba(236,78,2,0.35)",
+            background: "rgba(236,78,2,0.07)",
+            flexShrink: 0,
+          }}>
+            <span style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "10px",
+              color: "var(--rust)",
+              letterSpacing: "0.05em",
+              userSelect: "none",
+            }}>ja</span>
+          </div>
+          {/* Wordmark */}
           <span style={{
-            fontFamily: "var(--font-serif)",
+            fontFamily: "var(--font-body)",
             fontWeight: 500,
-            color: "var(--ink)",
-            fontSize: "15px",
-            letterSpacing: "0.02em",
+            fontSize: "14px",
+            letterSpacing: "-0.01em",
             whiteSpace: "nowrap",
           }}>
-            JobAutopilot
+            <span style={{ color: "var(--ink)" }}>Job</span><span style={{ color: "var(--ink-dim)" }}>Autopilot</span>
           </span>
-        </div>
+        </a>
 
         {/* Nav links */}
         <nav className="hidden md:flex items-center gap-7" style={{ margin: "0 auto", padding: "0 2rem" }}>

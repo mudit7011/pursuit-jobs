@@ -313,7 +313,7 @@ export default function AnimatedCardStack() {
             color: "var(--ink-muted)",
           }}
         >
-          Applying in real-time
+          Simulated · not live
         </span>
       </div>
     </div>

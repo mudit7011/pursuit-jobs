@@ -153,7 +153,7 @@ export default function HowItWorks() {
                   color: "var(--ink-dim)",
                 }}
               >
-                Live applications
+                Sample output
               </span>
             </div>
 

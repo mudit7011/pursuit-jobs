@@ -77,18 +77,15 @@ export default function Features() {
           {FEATURES.map(({ icon: Icon, title, desc, accent }, i) => (
             <motion.div
               key={title}
-              className="p-8 transition-colors duration-300"
+              className="p-8 feature-card"
               style={{
                 borderTop: "1px solid var(--border)",
                 borderRight: i % 3 !== 2 ? "1px solid var(--border)" : "none",
-                background: "rgba(13,11,9,0.55)",
-                backdropFilter: "blur(2px)",
               }}
               initial={{ opacity: 0, y: 8 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.1 }}
               transition={{ duration: 0.18, delay: i * 0.04, ease: "easeOut" }}
-              whileHover={{ backgroundColor: "rgba(236,78,2,0.06)" }}
             >
               <div
                 className="w-9 h-9 rounded-lg flex items-center justify-center mb-6 transition-all duration-300"
