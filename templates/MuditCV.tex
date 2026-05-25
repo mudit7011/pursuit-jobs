@@ -137,6 +137,15 @@
   \resumeSubHeadingListStart
 
     \resumeProjectHeading
+      {\textbf{JobAutoCopilot} $|$ \emph{Python, Playwright, Gemini API, Telegram Bot API, SQLite, LaTeX}}{\href{https://github.com/mudit7011/jobcopilot}{\textcolor{LinkBlue}{\underline{GitHub}}}}
+      \resumeItemListStart
+        \resumeItem{Built an end-to-end job application bot that monitors Telegram groups 24/7, intercepts job posts in real time, and autonomously submits applications — zero human input required after setup.}
+        \resumeItem{Implemented a \textbf{3-stage eligibility pipeline}: regex checks for batch year and experience (instant, free), followed by \textbf{Gemini API} skill-overlap scoring only for candidates passing the first gate — cheapest-first by design.}
+        \resumeItem{Engineered a \textbf{Playwright-based form filler} that handles Greenhouse, Lever, Workday, Ashby, and unknown ATS platforms — extracts all fields dynamically, generates contextual answers via LLM, uploads tailored PDF, and submits.}
+        \resumeItem{Integrated \textbf{per-job LaTeX resume compilation} with keywords injected from the job description, \textbf{SQLite duplicate prevention} with COLLATE NOCASE matching, and Telegram notifications for every outcome (applied / CAPTCHA blocked / ineligible).}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
       {\textbf{FootPrints} $|$ \emph{Next.js, Firebase, TypeScript, Google Maps API, Gemini API}}{\href{https://footprints.website}{\textcolor{LinkBlue}{\underline{Live Demo}}}}
       \resumeItemListStart
         \resumeItem{Built and shipped a full-stack couples memory app featuring a \textbf{Polaroid Map} where each saved memory is pinned as a polaroid on Google Maps, with stacked fan-view for multiple memories at the same location.}
