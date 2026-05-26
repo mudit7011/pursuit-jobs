@@ -12,3 +12,4 @@ output/
 service-account*.json
 config/
 data/
+sessions/

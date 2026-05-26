@@ -1,5 +1,6 @@
 import re
 import json
+import os
 import logging
 import google.generativeai as genai
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from src.config import GEMINI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 log = logging.getLogger(__name__)
+
+MOCK_GEMINI = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 
 
 @dataclass
@@ -55,7 +58,11 @@ def check_eligibility(job: JobPosting, profile: UserProfile) -> EligibilityResul
                 ),
             )
 
-    # Rule 3: skills overlap via Gemini
+    # Rule 3: skills overlap via Gemini (skipped in mock mode)
+    if MOCK_GEMINI:
+        log.info("MOCK_GEMINI=true — skipping Gemini skills check, defaulting to 75% overlap")
+        return EligibilityResult(eligible=True, reason="[MOCK] 75% skills overlap")
+
     prompt = f"""Given this job description and candidate skills, return ONLY a JSON object.
 
 Job description: {job.jd_summary}

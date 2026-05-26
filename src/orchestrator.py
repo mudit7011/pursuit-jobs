@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 from src.models import ApplyType, JobPosting
+from src.applicators.linkedin_easy_apply import apply_linkedin_easy_apply
 from src.resume_tailor import save_pdf
 from src.drive_uploader import upload_pdf
 from src.email_sender import send_email
@@ -90,6 +91,19 @@ async def process_job(job: JobPosting) -> None:
         elif job.apply_type == ApplyType.FORM:
             fill_form(job.apply_target, job.company, job.role, job.jd_summary, drive_link)
             log.info(f"Google Form submitted: {job.apply_target}")
+
+        elif job.apply_type == ApplyType.LINKEDIN_EASY_APPLY:
+            success = apply_linkedin_easy_apply(
+                apply_url=job.apply_target,
+                company=job.company,
+                role=job.role,
+                jd_summary=job.jd_summary,
+                pdf_path=pdf_path,
+                profile=_profile,
+            )
+            if not success:
+                raise Exception("LinkedIn Easy Apply did not reach submission")
+            log.info(f"LinkedIn Easy Apply submitted: {job.apply_target}")
 
         elif job.apply_type == ApplyType.WEB_FORM:
             fill_web_form(

@@ -29,6 +29,7 @@ class UserProfile:
     skills: List[str]
     resume_pdf_path: str
     summary: str
+    raw: dict = None  # full JSON for extra fields like job_search config
 
 
 def load_profile(path: str = DEFAULT_PROFILE_PATH) -> UserProfile:
@@ -37,4 +38,8 @@ def load_profile(path: str = DEFAULT_PROFILE_PATH) -> UserProfile:
         raise FileNotFoundError(f"Profile not found: {path}")
     with open(path, "r") as f:
         data = json.load(f)
-    return UserProfile(**data)
+    known_fields = {f for f in UserProfile.__dataclass_fields__ if f != "raw"}
+    profile_data = {k: v for k, v in data.items() if k in known_fields}
+    profile = UserProfile(**profile_data)
+    profile.raw = data
+    return profile
