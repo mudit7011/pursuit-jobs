@@ -8,47 +8,117 @@ from typing import List
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 from src.scrapers.base import ScrapedJob, is_blacklisted
 
+# ── Title relevance filter (same logic as job_crawler) ───────────────────────
+_RELEVANT = {
+    "software engineer", "software developer", "swe", "sde",
+    "backend engineer", "backend developer", "backend dev",
+    "frontend engineer", "frontend developer",
+    "fullstack", "full stack", "full-stack",
+    "node.js", "nodejs", "python developer", "python engineer",
+    "api developer", "api engineer", "web developer", "web engineer",
+    "typescript", "javascript developer",
+    "ai engineer", "ml engineer", "llm engineer",
+    "platform engineer", "devops engineer",
+    "application developer", "application engineer",
+    "engineer", "developer",
+}
+_IRRELEVANT = {
+    "analyst", "business analyst", "data analyst", "product analyst",
+    "project manager", "program manager", "scrum master",
+    "qa engineer", "qa automation", "quality assurance", "test engineer",
+    "automation tester", "automation engineer", "performance test",
+    "sap", "oracle", "salesforce", "snowflake", "informatica",
+    "hr ", "recruiter", "talent acquisition",
+    "designer", "ux", "ui designer", "graphic",
+    "content writer", "technical writer",
+    "finance", "accountant", "chartered",
+    "consultant", "visio", "monday.com",
+    "data governance", "capital markets", "asset management",
+    "banking domain", "loan iq", "pl/sql", "idq", "cdq",
+    "snaplogic", "architect",  # data/solution architects not target
+}
+
+def _is_relevant(title: str) -> bool:
+    t = title.lower()
+    if any(kw in t for kw in _IRRELEVANT):
+        return False
+    return any(kw in t for kw in _RELEVANT)
+
 log = logging.getLogger(__name__)
 _SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/wellfound.json")
+
+_STEALTH_JS = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} };
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+            { name: 'Chrome PDF Plugin',  filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer',  filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client',      filename: 'internal-nacl-plugin', description: '', length: 2 },
+        ]
+    });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    try {
+        const origQuery = window.navigator.permissions.query.bind(navigator.permissions);
+        window.navigator.permissions.query = (p) =>
+            p.name === 'notifications'
+                ? Promise.resolve({ state: Notification.permission })
+                : origQuery(p);
+    } catch(_) {}
+"""
 
 
 def _human_delay(a=0.8, b=2.0): time.sleep(random.uniform(a, b))
 
 
-def _build_search_url(keyword: str) -> str:
-    kw = keyword.lower().replace(" ", "-")
-    return f"https://wellfound.com/jobs?q={kw}&remote=true&experience=0-2"
+def _build_search_url(keyword: str, location: str = "") -> str:
+    import urllib.parse
+    kw = urllib.parse.quote(keyword)
+    base = f"https://wellfound.com/jobs?q={kw}"
+    if location:
+        base += f"&locations[]={urllib.parse.quote(location)}"
+    return base
 
 
-def _get_company_slugs(page: Page) -> List[str]:
-    """Extract company slugs from the search results page."""
+def _get_company_slugs(page: Page, max_slugs: int = 20) -> List[str]:
+    """Extract company slugs from the search results page, scrolling to load more."""
     try:
         page.wait_for_selector(
             "[data-test='StartupResult'], a[href*='/company/']", timeout=12000)
     except PWTimeout:
         return []
 
-    slugs = page.eval_on_selector_all(
-        "a[href*='/company/']",
-        """els => {
-            const seen = new Set();
-            return els
-                .map(e => {
-                    const m = e.href.match(/\\/company\\/([^\\/\\?#]+)/);
-                    return m ? m[1] : null;
-                })
-                .filter(s => {
-                    if (!s || seen.has(s)) return false;
-                    // Exclude profile / nav links that aren't company pages
-                    const NAV = new Set(['settings','profile','people','culture','jobs']);
-                    if (NAV.has(s)) return false;
-                    seen.add(s);
-                    return true;
-                });
-        }"""
-    )
+    # Scroll down multiple times to load more results (infinite scroll / lazy load)
+    for _ in range(5):
+        page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
+        _human_delay(1.2, 2.0)
+
+    def _extract():
+        return page.eval_on_selector_all(
+            "a[href*='/company/']",
+            """els => {
+                const seen = new Set();
+                return els
+                    .map(e => {
+                        const m = e.href.match(/\\/company\\/([^\\/\\?#]+)/);
+                        return m ? m[1] : null;
+                    })
+                    .filter(s => {
+                        if (!s || seen.has(s)) return false;
+                        const NAV = new Set(['settings','profile','people','culture','jobs','home','applications','messages','saved','hidden']);
+                        if (NAV.has(s)) return false;
+                        // Must contain a hyphen or digit — real company slugs do
+                        if (!/[-0-9]/.test(s)) return false;
+                        seen.add(s);
+                        return true;
+                    });
+            }"""
+        )
+
+    slugs = _extract()
+    random.shuffle(slugs)   # randomise so we don't always hit the same top companies
     log.info(f"Wellfound: {len(slugs)} company slugs from search")
-    return slugs
+    return slugs[:max_slugs]
 
 
 def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[ScrapedJob]:
@@ -60,6 +130,12 @@ def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[Scra
         _human_delay(1.5, 2.5)
     except Exception as e:
         log.warning(f"Wellfound: failed to load {url} — {e}")
+        return jobs
+
+    # Check for bot detection page
+    page_text = page.evaluate("() => document.body ? document.body.innerText : ''")
+    if "access is temporarily restricted" in page_text.lower():
+        log.warning("Wellfound: bot detection on company page — skipping (refresh session via setup_sessions.py)")
         return jobs
 
     # Extract company name from page (strip "Jobs at " prefix if present)
@@ -124,6 +200,10 @@ def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[Scra
         if is_blacklisted(title, blacklist):
             log.info(f"Wellfound: blacklisted — {title}")
             continue
+        # Skip irrelevant titles BEFORE opening the detail page (saves time)
+        if not _is_relevant(title):
+            log.info(f"Wellfound: skipping irrelevant — {title}")
+            continue
         if not href:
             href = url  # fallback to company jobs page
 
@@ -162,6 +242,11 @@ def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[Scra
             slug_part = href.rstrip("/").split("/")[-1]
             title = " ".join(w.capitalize() for w in slug_part.split("-")[1:]) or slug_part
 
+        # Final relevance check after title is confirmed from detail page
+        if not _is_relevant(title):
+            log.info(f"Wellfound: skipping irrelevant (final) — {title}")
+            continue
+
         jobs.append(ScrapedJob(
             title=title, company=company, location=location,
             apply_url=href, jd_text=jd_text,
@@ -174,6 +259,7 @@ def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[Scra
 
 
 def scrape_wellfound(keywords: List[str], blacklist: List[str] = [],
+                     locations: List[str] = ["India", "Remote"],
                      max_jobs: int = 30) -> List[ScrapedJob]:
     all_jobs, seen = [], set()
     session_file = os.path.abspath(_SESSION_FILE)
@@ -183,19 +269,31 @@ def scrape_wellfound(keywords: List[str], blacklist: List[str] = [],
         return []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False,
-                                    args=["--disable-blink-features=AutomationControlled"])
+        browser = p.chromium.launch(
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+        )
         ctx = browser.new_context(
             storage_state=session,
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 900})
+            viewport={"width": 1280, "height": 900},
+            locale="en-US",
+            timezone_id="Asia/Kolkata",
+        )
+        ctx.add_init_script(_STEALTH_JS)
         page = ctx.new_page()
         log.info("Wellfound: loaded saved session")
 
-        for kw in keywords:
+        search_combos = [(kw, loc) for kw in keywords for loc in (locations or [""])]
+        for kw, loc in search_combos:
             if len(all_jobs) >= max_jobs: break
             try:
-                page.goto(_build_search_url(kw), timeout=30000)
+                page.goto(_build_search_url(kw, loc), timeout=30000)
                 _human_delay(2.0, 3.0)
 
                 slugs = _get_company_slugs(page)

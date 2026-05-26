@@ -34,6 +34,53 @@ LINKEDIN_INTERVAL     = int(os.getenv("LINKEDIN_INTERVAL_SECONDS", "86400"))  # 
 _linkedin_last_run: float = 0.0  # epoch seconds
 
 
+# ── Title relevance filter ───────────────────────────────────────────────────
+
+_RELEVANT_TITLE_KEYWORDS = {
+    # engineering roles
+    "software engineer", "software developer", "swe", "sde",
+    "backend engineer", "backend developer", "backend dev",
+    "frontend engineer", "frontend developer",
+    "fullstack", "full stack", "full-stack",
+    "node.js", "nodejs", "python developer", "python engineer",
+    "api developer", "api engineer",
+    "web developer", "web engineer",
+    "typescript", "javascript developer",
+    "ai engineer", "ml engineer", "llm engineer",
+    "platform engineer", "infrastructure engineer",
+    "devops engineer", "site reliability",
+    "application developer", "application engineer",
+    # generic levels
+    "engineer", "developer",
+}
+
+_IRRELEVANT_TITLE_KEYWORDS = {
+    "business analyst", "data analyst", "product analyst",
+    "project manager", "program manager", "scrum master",
+    "qa engineer", "qa automation", "quality assurance", "test engineer",
+    "automation tester", "automation engineer", "performance test",
+    "sap", "oracle", "salesforce", "snowflake", "informatica",
+    "hr", "recruiter", "talent acquisition",
+    "designer", "ux", "ui designer", "graphic",
+    "content writer", "technical writer",
+    "finance", "accountant", "chartered",
+    "consultant", "visio", "monday.com",
+    "data governance", "data engineer",  # not mudit's target
+    "capital markets", "asset management", "banking domain",
+    "loan iq", "pl/sql", "idq", "cdq",
+}
+
+
+def _is_relevant_title(title: str) -> bool:
+    """Return True if the job title matches target engineering roles."""
+    t = title.lower()
+    # Reject if any irrelevant keyword matches
+    if any(kw in t for kw in _IRRELEVANT_TITLE_KEYWORDS):
+        return False
+    # Accept if any relevant keyword matches
+    return any(kw in t for kw in _RELEVANT_TITLE_KEYWORDS)
+
+
 def _to_job_posting(job: ScrapedJob) -> JobPosting:
     # Route each platform to its dedicated applicator
     if job.source == "linkedin" and job.easy_apply:
@@ -47,8 +94,12 @@ def _to_job_posting(job: ScrapedJob) -> JobPosting:
     else:
         apply_type = ApplyType.WEB_FORM
 
+    relevant = _is_relevant_title(job.title)
+    if not relevant:
+        log.info(f"Skipping irrelevant title: '{job.title}' @ {job.company}")
+
     return JobPosting(
-        is_relevant=True,
+        is_relevant=relevant,
         company=job.company,
         role=job.title,
         location=job.location,

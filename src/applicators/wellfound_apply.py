@@ -21,6 +21,27 @@ log = logging.getLogger(__name__)
 _SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/wellfound.json")
 _MOCK_GEMINI  = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 
+# ── Stealth script — masks Playwright/automation fingerprint ─────────────────
+_STEALTH_JS = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} };
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+            { name: 'Chrome PDF Plugin',  filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer',  filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client',      filename: 'internal-nacl-plugin', description: '', length: 2 },
+        ]
+    });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    try {
+        const origQuery = window.navigator.permissions.query.bind(navigator.permissions);
+        window.navigator.permissions.query = (p) =>
+            p.name === 'notifications'
+                ? Promise.resolve({ state: Notification.permission })
+                : origQuery(p);
+    } catch(_) {}
+"""
+
 genai.configure(api_key=GEMINI_API_KEY)
 _model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -120,7 +141,16 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
     try:
         if ftype in ("text", "email", "tel", "number", "url", "textarea",
                      "date", "search", "password"):
-            page.fill(sel, str(answer))
+            # Click to focus first, clear existing value, then type character by character.
+            # Keyboard typing fires React's synthetic onChange events (page.fill bypasses them).
+            try:
+                page.click(sel, timeout=5000)
+                page.keyboard.press("Control+a")
+                page.keyboard.press("Delete")
+                page.keyboard.type(str(answer), delay=20)
+            except Exception:
+                # Fallback to fill if click fails
+                page.fill(sel, str(answer))
             _delay(0.4, 0.8)
 
             # Typeahead dropdown handling (JS click bypasses pointer-events)
@@ -227,7 +257,12 @@ def apply_wellfound(
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
         )
         ctx = browser.new_context(
             storage_state=session_file,
@@ -237,36 +272,100 @@ def apply_wellfound(
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1280, "height": 900},
+            locale="en-US",
+            timezone_id="Asia/Kolkata",
         )
+        ctx.add_init_script(_STEALTH_JS)
         page = ctx.new_page()
         log.info(f"Wellfound Apply: '{role}' @ {company}")
 
         try:
             page.goto(apply_url, timeout=30000)
-            _delay(2.0, 3.0)
+            # Wait for React to fully render the page
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except PWTimeout:
+                pass
+            # Also wait for at least one button to appear
+            try:
+                page.wait_for_selector("button, a[href]", timeout=10000)
+            except PWTimeout:
+                pass
+            _delay(1.5, 2.5)
 
-            # Click Apply button
+            log.info(f"Wellfound: page URL = {page.url}")
+            log.info(f"Wellfound: page title = {page.title()}")
+
+            # Detect bot-blocking page early
+            page_text = page.evaluate("() => document.body ? document.body.innerText : ''")
+            if "access is temporarily restricted" in page_text.lower() or "bot" in page.title().lower():
+                log.error(
+                    "Wellfound: bot detection triggered — session is flagged. "
+                    "Please run: python setup_sessions.py  and refresh the Wellfound session."
+                )
+                return False
+
+            url_before = page.url
             apply_btn = None
+
+            # Prefer the Wellfound-native apply button (opens modal, not external redirect).
+            # On Wellfound job pages the modal-opening button is a <button> (no href).
+            # External "Apply on company website" is an <a> tag with an external href.
             for sel in [
-                "button:has-text('Apply')",
-                "a:has-text('Apply')",
+                "button:has-text('Apply')",          # native Wellfound apply → opens modal
                 "[data-test='apply-button']",
                 "button[aria-label*='Apply']",
             ]:
                 el = page.query_selector(sel)
                 if el and el.is_visible():
                     apply_btn = el
+                    log.info(f"Wellfound: found apply button via '{sel}': '{el.inner_text().strip()}'")
                     break
 
-            if apply_btn:
-                apply_btn.click()
-                _delay(1.5, 2.5)
-            else:
-                log.warning("Wellfound: Apply button not found — may already be on apply page")
+            if not apply_btn:
+                log.warning(f"Wellfound: Apply button not found for '{role}'")
+                return False
+
+            apply_btn.click()
+            _delay(2.0, 3.0)
+
+            # If page navigated away (external apply), go back and skip
+            if page.url != url_before:
+                log.warning(f"Wellfound: Apply navigated away to {page.url} — external apply, skipping")
+                return False
+
+            # Wait for the apply panel/modal textarea to appear
+            try:
+                page.wait_for_selector(
+                    "textarea, button:has-text('Send application')",
+                    timeout=8000
+                )
+                log.info("Wellfound: apply panel opened")
+            except PWTimeout:
+                log.warning("Wellfound: apply panel did not appear — trying JS click")
+                # Try JS click as fallback
+                page.evaluate("el => el.click()", apply_btn)
+                _delay(2.0, 3.0)
+                try:
+                    page.wait_for_selector("textarea, button:has-text('Send application')", timeout=5000)
+                    log.info("Wellfound: apply panel opened via JS click")
+                except PWTimeout:
+                    log.warning("Wellfound: apply panel still not found — skipping")
+                    return False
 
             # ── Step loop ────────────────────────────────────────────────────
             for step in range(10):
                 _delay(0.8, 1.2)
+                # Confirm the page is still open and apply form is visible
+                try:
+                    page.wait_for_selector(
+                        "textarea, button:has-text('Send application'), "
+                        "button:has-text('Submit'), [class*='application']",
+                        timeout=5000
+                    )
+                except PWTimeout:
+                    log.warning(f"Wellfound step {step}: apply form not found — stopping")
+                    break
 
                 # Upload resume if file input present
                 if pdf_path:
@@ -312,6 +411,7 @@ def apply_wellfound(
                 # Navigation buttons
                 submit_btn = None
                 for sel in [
+                    "button:has-text('Send application')",
                     "button[type='submit']",
                     "button:has-text('Submit application')",
                     "button:has-text('Submit')",
@@ -323,11 +423,38 @@ def apply_wellfound(
                         break
 
                 if submit_btn:
-                    btn_text = submit_btn.inner_text().strip().lower() if hasattr(submit_btn, 'inner_text') else "submit"
                     if dry_run:
                         log.info(f"DRY RUN — would submit Wellfound: '{role}' @ {company}")
                         return True
-                    submit_btn.click()
+                    # Wait briefly for React to enable the button after field changes
+                    _delay(1.5, 2.0)
+                    # Check if button is still disabled — means a blocker is present
+                    is_disabled = page.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true'", submit_btn)
+                    if is_disabled:
+                        # Look for blocker messages (visa, sponsorship, ineligible, etc.)
+                        blocker_text = page.evaluate("""() => {
+                            const selectors = [
+                                '[class*="warning"]', '[class*="alert"]', '[class*="error"]',
+                                '[class*="ineligible"]', '[style*="red"]', '[style*="orange"]'
+                            ];
+                            for (const s of selectors) {
+                                const el = document.querySelector(s);
+                                if (el && el.innerText.trim()) return el.innerText.trim().slice(0, 200);
+                            }
+                            return '';
+                        }""")
+                        log.warning(f"Wellfound: Submit disabled for '{role}' @ {company}. Blocker: {blocker_text[:100] if blocker_text else 'unknown'}")
+                        # Click Cancel to close modal cleanly
+                        try:
+                            cancel = page.query_selector("button:has-text('Cancel')")
+                            if cancel and cancel.is_visible():
+                                cancel.click()
+                                log.info("Wellfound: clicked Cancel — skipping this job")
+                        except Exception:
+                            pass
+                        return False
+                    # Button is enabled — submit
+                    page.evaluate("el => el.click()", submit_btn)
                     _delay(2.0, 3.0)
                     log.info(f"✅ Applied (Wellfound): '{role}' @ {company}")
                     return True

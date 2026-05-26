@@ -12,10 +12,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 from src.profile import load_profile
 from src.applicators.wellfound_apply import apply_wellfound
 
-TEST_URL = "https://wellfound.com/jobs/4261150-ai-backend-engineer-agents-llm-systems"
-COMPANY  = "grail.computer"
-ROLE     = "AI Backend Engineer, Agents & LLM Systems"
-JD_SUMMARY = "AI Backend Engineer role at grail.computer. Building backend systems for AI agents and LLM applications."
+TEST_URL = "https://wellfound.com/jobs/4261034-monday-com-software-engineer"
+COMPANY  = "Xohani Solutions"
+ROLE     = "Monday.com Software Engineer"
+JD_SUMMARY = "Software Engineer role at Xohani Solutions working with Monday.com platform integrations and customizations."
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
