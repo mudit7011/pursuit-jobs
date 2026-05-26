@@ -6,6 +6,9 @@ class ApplyType(Enum):
     FORM = "form"
     WEB_FORM = "web_form"
     LINKEDIN_EASY_APPLY = "linkedin_easy_apply"
+    NAUKRI_APPLY = "naukri_apply"
+    INTERNSHALA_APPLY = "internshala_apply"
+    WELLFOUND_APPLY = "wellfound_apply"
     UNKNOWN = "unknown"
 
 @dataclass

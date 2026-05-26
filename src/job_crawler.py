@@ -35,9 +35,15 @@ _linkedin_last_run: float = 0.0  # epoch seconds
 
 
 def _to_job_posting(job: ScrapedJob) -> JobPosting:
-    # Route LinkedIn Easy Apply jobs to the dedicated applicator
+    # Route each platform to its dedicated applicator
     if job.source == "linkedin" and job.easy_apply:
         apply_type = ApplyType.LINKEDIN_EASY_APPLY
+    elif job.source == "naukri":
+        apply_type = ApplyType.NAUKRI_APPLY
+    elif job.source == "internshala":
+        apply_type = ApplyType.INTERNSHALA_APPLY
+    elif job.source == "wellfound":
+        apply_type = ApplyType.WELLFOUND_APPLY
     else:
         apply_type = ApplyType.WEB_FORM
 

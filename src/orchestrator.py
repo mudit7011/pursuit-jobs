@@ -3,6 +3,9 @@ import logging
 from datetime import datetime
 from src.models import ApplyType, JobPosting
 from src.applicators.linkedin_easy_apply import apply_linkedin_easy_apply
+from src.applicators.naukri_apply import apply_naukri
+from src.applicators.internshala_apply import apply_internshala
+from src.applicators.wellfound_apply import apply_wellfound
 from src.resume_tailor import save_pdf
 from src.drive_uploader import upload_pdf
 from src.email_sender import send_email
@@ -104,6 +107,45 @@ async def process_job(job: JobPosting) -> None:
             if not success:
                 raise Exception("LinkedIn Easy Apply did not reach submission")
             log.info(f"LinkedIn Easy Apply submitted: {job.apply_target}")
+
+        elif job.apply_type == ApplyType.NAUKRI_APPLY:
+            success = apply_naukri(
+                apply_url=job.apply_target,
+                company=job.company,
+                role=job.role,
+                jd_summary=job.jd_summary,
+                pdf_path=pdf_path,
+                profile=_profile,
+            )
+            if not success:
+                raise Exception("Naukri Apply did not reach submission")
+            log.info(f"Naukri Apply submitted: {job.apply_target}")
+
+        elif job.apply_type == ApplyType.INTERNSHALA_APPLY:
+            success = apply_internshala(
+                apply_url=job.apply_target,
+                company=job.company,
+                role=job.role,
+                jd_summary=job.jd_summary,
+                pdf_path=pdf_path,
+                profile=_profile,
+            )
+            if not success:
+                raise Exception("Internshala Apply did not reach submission")
+            log.info(f"Internshala Apply submitted: {job.apply_target}")
+
+        elif job.apply_type == ApplyType.WELLFOUND_APPLY:
+            success = apply_wellfound(
+                apply_url=job.apply_target,
+                company=job.company,
+                role=job.role,
+                jd_summary=job.jd_summary,
+                pdf_path=pdf_path,
+                profile=_profile,
+            )
+            if not success:
+                raise Exception("Wellfound Apply did not reach submission")
+            log.info(f"Wellfound Apply submitted: {job.apply_target}")
 
         elif job.apply_type == ApplyType.WEB_FORM:
             fill_web_form(
