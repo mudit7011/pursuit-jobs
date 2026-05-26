@@ -6,6 +6,7 @@ from src.applicators.linkedin_easy_apply import apply_linkedin_easy_apply
 from src.applicators.naukri_apply import apply_naukri
 from src.applicators.internshala_apply import apply_internshala
 from src.applicators.wellfound_apply import apply_wellfound
+from src.applicators.indeed_apply import apply_indeed
 from src.resume_tailor import save_pdf
 from src.drive_uploader import upload_pdf
 from src.email_sender import send_email
@@ -146,6 +147,19 @@ async def process_job(job: JobPosting) -> None:
             if not success:
                 raise Exception("Wellfound Apply did not reach submission")
             log.info(f"Wellfound Apply submitted: {job.apply_target}")
+
+        elif job.apply_type == ApplyType.INDEED_APPLY:
+            success = apply_indeed(
+                apply_url=job.apply_target,
+                company=job.company,
+                role=job.role,
+                jd_summary=job.jd_summary,
+                pdf_path=pdf_path,
+                profile=_profile,
+            )
+            if not success:
+                raise Exception("Indeed Apply did not reach submission")
+            log.info(f"Indeed Apply submitted: {job.apply_target}")
 
         elif job.apply_type == ApplyType.WEB_FORM:
             fill_web_form(

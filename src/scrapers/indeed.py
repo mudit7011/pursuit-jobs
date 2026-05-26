@@ -1,7 +1,7 @@
 """
 Indeed job scraper — no login needed, public listings.
 """
-import os, time, random, logging
+import os, re, time, random, logging
 from typing import List
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 from src.scrapers.base import ScrapedJob, is_blacklisted
@@ -62,6 +62,11 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
             continue
         if not href.startswith("http"):
             href = "https://in.indeed.com" + href
+        # Normalise to clean viewjob URL — strip tracking params (vjs=3, xpse, xfps, etc.)
+        # "Apply with Indeed" only works on the full viewjob page, not the vjs=3 iframe URL.
+        jk_match = re.search(r"jk=([a-z0-9]+)", href)
+        if jk_match:
+            href = f"https://in.indeed.com/viewjob?jk={jk_match.group(1)}"
 
         try:
             search_url = page.url

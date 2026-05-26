@@ -9,6 +9,7 @@ class ApplyType(Enum):
     NAUKRI_APPLY = "naukri_apply"
     INTERNSHALA_APPLY = "internshala_apply"
     WELLFOUND_APPLY = "wellfound_apply"
+    INDEED_APPLY = "indeed_apply"
     UNKNOWN = "unknown"
 
 @dataclass

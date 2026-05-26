@@ -17,6 +17,7 @@ from src.scrapers.naukri import scrape_naukri
 from src.scrapers.indeed import scrape_indeed
 from src.scrapers.wellfound import scrape_wellfound
 from src.scrapers.internshala import scrape_internshala
+from src.applicators.indeed_apply import apply_indeed
 from src.models import JobPosting, ApplyType
 from src.profile import load_profile
 from src.tracker import is_duplicate
@@ -91,6 +92,8 @@ def _to_job_posting(job: ScrapedJob) -> JobPosting:
         apply_type = ApplyType.INTERNSHALA_APPLY
     elif job.source == "wellfound":
         apply_type = ApplyType.WELLFOUND_APPLY
+    elif job.source == "indeed":
+        apply_type = ApplyType.INDEED_APPLY
     else:
         apply_type = ApplyType.WEB_FORM
 
