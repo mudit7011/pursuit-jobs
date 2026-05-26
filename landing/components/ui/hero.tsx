@@ -189,21 +189,6 @@ export default function Hero() {
             </motion.div>
           </div>
 
-          {/* Rotating badge bottom-right */}
-          <div className="absolute bottom-7 right-8 z-20 w-20 h-20 flex items-center justify-center">
-            <div className="absolute w-8 h-8 rounded-full flex items-center justify-center"
-              style={{ border: "1px solid rgba(236,78,2,0.3)", background: "rgba(236,78,2,0.06)" }}>
-              <div className="w-2 h-2 rounded-full" style={{ background: "var(--rust)" }} />
-            </div>
-            <motion.svg viewBox="0 0 100 100" className="absolute w-full h-full"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 22, repeat: Infinity, ease: "linear" }}>
-              <defs><path id="rc" d="M 50,50 m -36,0 a 36,36 0 1,1 72,0 a 36,36 0 1,1 -72,0" /></defs>
-              <text style={{ fontFamily: "var(--font-mono)", fontSize: "6.5px", fill: "rgba(240,235,227,0.3)", letterSpacing: "2.5px" }}>
-                <textPath href="#rc">JOB AUTOPILOT · FREE · OPEN SOURCE · </textPath>
-              </text>
-            </motion.svg>
-          </div>
         </div>
       </motion.div>
 
