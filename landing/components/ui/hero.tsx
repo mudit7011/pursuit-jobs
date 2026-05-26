@@ -7,17 +7,47 @@ const Dithering = lazy(() =>
   import("@paper-design/shaders-react").then((mod) => ({ default: mod.Dithering }))
 )
 
-function BlinkingCursor() {
-  const [on, setOn] = useState(true)
+const PHRASES = ["sleep better.", "land faster.", "stress less.", "win more."]
+
+function TypewriterCycler() {
+  const [phraseIdx, setPhraseIdx] = useState(0)
+  const [displayed, setDisplayed] = useState("")
+  const [deleting, setDeleting] = useState(false)
+  const [cursorOn, setCursorOn] = useState(true)
+
   useEffect(() => {
-    const t = setInterval(() => setOn(v => !v), 530)
+    const t = setInterval(() => setCursorOn(v => !v), 530)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    const phrase = PHRASES[phraseIdx]
+    let timeout: ReturnType<typeof setTimeout>
+    if (!deleting) {
+      if (displayed.length < phrase.length) {
+        timeout = setTimeout(() => setDisplayed(phrase.slice(0, displayed.length + 1)), 65)
+      } else {
+        timeout = setTimeout(() => setDeleting(true), 2000)
+      }
+    } else {
+      if (displayed.length > 0) {
+        timeout = setTimeout(() => setDisplayed(displayed.slice(0, -1)), 38)
+      } else {
+        setDeleting(false)
+        setPhraseIdx(i => (i + 1) % PHRASES.length)
+      }
+    }
+    return () => clearTimeout(timeout)
+  }, [displayed, deleting, phraseIdx])
+
   return (
-    <span
-      className="inline-block w-[0.12em] h-[0.85em] ml-1.5 align-middle"
-      style={{ background: on ? "var(--ink)" : "transparent", borderRadius: "1px" }}
-    />
+    <span style={{ color: "rgba(240,235,227,0.6)", fontStyle: "italic" }}>
+      {displayed}
+      <span
+        className="inline-block w-[0.12em] h-[0.85em] ml-1.5 align-middle"
+        style={{ background: cursorOn ? "rgba(240,235,227,0.6)" : "transparent", borderRadius: "1px", verticalAlign: "middle" }}
+      />
+    </span>
   )
 }
 
@@ -111,9 +141,7 @@ export default function Hero() {
               transition={{ duration: 0.9, delay: 0.42, ease: [0.22, 1, 0.36, 1] }}
             >
               Apply smarter,<br />
-              <span style={{ color: "rgba(240,235,227,0.6)", fontStyle: "italic" }}>
-                sleep better.<BlinkingCursor />
-              </span>
+              <TypewriterCycler />
             </motion.h1>
 
             {/* Sub */}
