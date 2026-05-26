@@ -102,7 +102,12 @@ _EXTRACT_FIELDS_JS = """() => {
         if (type === 'select') {
             field.options = [...el.options].map(o => o.text.trim()).filter(Boolean);
         }
-        return (id || name) && field.selector ? field : null;
+        // For fields without id/name, use a data-index attribute for targeting
+        if (!field.selector) {
+            el.setAttribute('data-autopilot-idx', String(Array.from(inputs).indexOf(el)));
+            field.selector = '[data-autopilot-idx="' + el.getAttribute('data-autopilot-idx') + '"]';
+        }
+        return field.selector ? field : null;
     }).filter(Boolean);
 }"""
 
@@ -280,10 +285,14 @@ def apply_wellfound(
 
                 # Extract and fill unfilled fields
                 PLACEHOLDER_VALS = {"", "select an option", "select", "please select", "--select--"}
+                # Skip stray site-wide inputs (search bars, nav inputs, etc.)
+                SKIP_LABELS = {"search everything", "search", "search jobs", "search companies"}
                 fields = page.evaluate(_EXTRACT_FIELDS_JS)
                 other_fields = [
                     f for f in (fields or [])
-                    if f["type"] != "file" and (
+                    if f["type"] != "file"
+                    and f.get("label", "").lower() not in SKIP_LABELS
+                    and (
                         f.get("currentValue", "").lower() in PLACEHOLDER_VALS
                         or f["type"] in ("radio", "checkbox")
                     )
