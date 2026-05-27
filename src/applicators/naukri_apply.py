@@ -293,34 +293,62 @@ def apply_naukri(
         log.info(f"Naukri Apply: '{role}' @ {company}")
 
         try:
+            # Naukri job pages only render properly when there's a Naukri Referer.
+            # Set the Referer header before navigating directly to the job URL.
+            page.set_extra_http_headers({
+                "Referer": "https://www.naukri.com/software-developer-jobs"
+            })
             page.goto(apply_url, timeout=30000)
-            _delay(2.0, 3.0)
+            page.wait_for_load_state("domcontentloaded", timeout=20000)
+            _delay(2.5, 3.5)
+
+            log.info(f"Naukri: job page loaded — {page.title()}")
 
             # Naukri may show a login prompt — session should handle it.
             # Click the Apply / Quick Apply button.
             apply_btn = None
+            all_btns = page.evaluate("""() =>
+                [...document.querySelectorAll('button')]
+                .filter(b => b.offsetParent !== null)
+                .map(b => b.innerText.trim())
+                .filter(t => t)
+            """)
+            log.info(f"Naukri: visible buttons on job page — {all_btns}")
+
             for sel in [
-                "button[data-ga-track*='Apply']",
                 "button:has-text('Apply')",
+                "button:has-text('Quick Apply')",
                 "a:has-text('Apply')",
-                ".apply-button",
-                "#apply-button",
-                "button.styles_apply-button__N92ro",
             ]:
                 try:
                     el = page.query_selector(sel)
                     if el and el.is_visible():
+                        btn_text = el.inner_text().strip().lower()
+                        # Skip external apply buttons
+                        if "company site" in btn_text or "company website" in btn_text:
+                            continue
                         apply_btn = el
                         break
                 except Exception:
                     continue
 
             if not apply_btn:
-                log.warning(f"Naukri: Apply button not found for '{role}'")
+                log.warning(f"Naukri: Apply button not found for '{role}' (may be external apply only)")
                 return False
 
+            log.info(f"Naukri: clicking Apply button — '{apply_btn.inner_text().strip()}'")
             apply_btn.click()
             _delay(1.5, 2.5)
+
+            # Debug: log all visible buttons after click
+            btns = page.evaluate("""() =>
+                [...document.querySelectorAll('button')]
+                .filter(b => b.offsetParent !== null)
+                .map(b => b.innerText.trim().slice(0,40))
+                .filter(t => t)
+            """)
+            log.info(f"Naukri: buttons after Apply click — {btns[:15]}")
+            log.info(f"Naukri: page URL after Apply click — {page.url}")
 
             # ── Step loop ────────────────────────────────────────────────────
             for step in range(10):
