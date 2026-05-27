@@ -14,9 +14,9 @@ from src.applicators.naukri_apply import apply_naukri
 
 # Find a Naukri job via: https://www.naukri.com/software-engineer-jobs
 # Naukri job URL — override with TEST_URL env var for a specific job
-TEST_URL  = os.getenv("TEST_URL", "https://www.naukri.com/job-listings-software-developer-acciojob-noida-hyderabad-pune-0-to-5-years-260526033178")
-COMPANY   = os.getenv("TEST_COMPANY", "Acciojob")
-ROLE      = os.getenv("TEST_ROLE", "Software Developer")
+TEST_URL  = os.getenv("TEST_URL", "https://www.naukri.com/job-listings-software-developer-fresher-yugma-pune-0-to-1-years-270526017942")
+COMPANY   = os.getenv("TEST_COMPANY", "Yugma")
+ROLE      = os.getenv("TEST_ROLE", "Software Developer Fresher")
 JD_SUMMARY = "Software Engineer role requiring Python/Node.js backend development skills."
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"

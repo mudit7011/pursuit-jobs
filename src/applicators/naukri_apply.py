@@ -299,21 +299,29 @@ def apply_naukri(
                 "Referer": "https://www.naukri.com/software-developer-jobs"
             })
             page.goto(apply_url, timeout=30000)
-            page.wait_for_load_state("domcontentloaded", timeout=20000)
-            _delay(2.5, 3.5)
+            page.wait_for_load_state("networkidle", timeout=25000)
+            _delay(2.0, 3.0)
 
             log.info(f"Naukri: job page loaded — {page.title()}")
+
+            # Wait for the Apply button to appear (JS-rendered)
+            try:
+                page.wait_for_selector(
+                    "button:has-text('Apply'), button:has-text('Quick Apply')",
+                    timeout=8000
+                )
+            except PWTimeout:
+                log.warning("Naukri: timed out waiting for Apply button")
 
             # Naukri may show a login prompt — session should handle it.
             # Click the Apply / Quick Apply button.
             apply_btn = None
             all_btns = page.evaluate("""() =>
                 [...document.querySelectorAll('button')]
-                .filter(b => b.offsetParent !== null)
                 .map(b => b.innerText.trim())
                 .filter(t => t)
             """)
-            log.info(f"Naukri: visible buttons on job page — {all_btns}")
+            log.info(f"Naukri: all buttons on job page — {all_btns}")
 
             for sel in [
                 "button:has-text('Apply')",
@@ -321,13 +329,15 @@ def apply_naukri(
                 "a:has-text('Apply')",
             ]:
                 try:
-                    el = page.query_selector(sel)
-                    if el and el.is_visible():
+                    els = page.query_selector_all(sel)
+                    for el in els:
                         btn_text = el.inner_text().strip().lower()
                         # Skip external apply buttons
                         if "company site" in btn_text or "company website" in btn_text:
                             continue
                         apply_btn = el
+                        break
+                    if apply_btn:
                         break
                 except Exception:
                     continue
@@ -337,6 +347,11 @@ def apply_naukri(
                 return False
 
             log.info(f"Naukri: clicking Apply button — '{apply_btn.inner_text().strip()}'")
+
+            if dry_run:
+                log.info(f"DRY RUN — would click Apply for Naukri: '{role}' @ {company}")
+                return True
+
             apply_btn.click()
             _delay(1.5, 2.5)
 
@@ -349,6 +364,15 @@ def apply_naukri(
             """)
             log.info(f"Naukri: buttons after Apply click — {btns[:15]}")
             log.info(f"Naukri: page URL after Apply click — {page.url}")
+
+            # Naukri Quick Apply: check for immediate success via URL
+            current_url = page.url
+            if "multiApplyResp" in current_url and "%3A200" in current_url:
+                log.info(f"✅ Applied (Naukri Quick Apply): '{role}' @ {company}")
+                return True
+            if "saveApply" in current_url and "multiApplyResp" in current_url:
+                log.info(f"✅ Applied (Naukri Quick Apply): '{role}' @ {company}")
+                return True
 
             # ── Step loop ────────────────────────────────────────────────────
             for step in range(10):
