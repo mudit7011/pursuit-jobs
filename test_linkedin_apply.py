@@ -4,25 +4,25 @@ Test LinkedIn Easy Apply on a single job URL.
 Usage:
     python test_linkedin_apply.py                    # auto-find job, dry run
     DRY_RUN=false python test_linkedin_apply.py      # auto-find job, actually apply
-    TEST_URL="https://www.linkedin.com/jobs/view/..." python test_linkedin_apply.py  # specific job
+    TEST_URL="https://www.linkedin.com/jobs/view/..." python test_linkedin_apply.py
 """
 import os
+import glob
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 from src.profile import load_profile
 from src.applicators.linkedin_easy_apply import apply_linkedin_easy_apply
 
-TEST_URL  = os.getenv("TEST_URL", "")
-COMPANY   = os.getenv("TEST_COMPANY", "")
-ROLE      = os.getenv("TEST_ROLE", "Software Engineer")
+TEST_URL   = os.getenv("TEST_URL", "")
+COMPANY    = os.getenv("TEST_COMPANY", "")
+ROLE       = os.getenv("TEST_ROLE", "Software Engineer")
 JD_SUMMARY = "Software Engineer role requiring Python/Node.js backend development skills."
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
 PDF_PATH = "output/MuditKumar_resume.pdf"
 if not os.path.exists(PDF_PATH):
-    import glob
     pdfs = glob.glob("output/*.pdf")
     PDF_PATH = pdfs[0] if pdfs else ""
 
@@ -45,24 +45,36 @@ if not TEST_URL:
             "https://www.linkedin.com/jobs/search/?f_AL=true&f_E=1%2C2&keywords=software%20engineer&location=India",
             timeout=30000
         )
-        time.sleep(5)
-        cards = page.query_selector_all(".job-card-container, .jobs-search-results__list-item")
-        found = []
-        for c in cards[:20]:
-            title_el   = c.query_selector(".job-card-list__title, .job-card-container__link")
-            company_el = c.query_selector(".job-card-container__primary-description, .job-card-container__company-name")
-            easy_badge = c.query_selector("[aria-label*='Easy Apply'], .job-card-container__apply-method")
-            if title_el and easy_badge:
-                href = title_el.get_attribute("href") or ""
-                if href and "/jobs/view/" in href:
-                    url = ("https://www.linkedin.com" + href.split("?")[0]
-                           if href.startswith("/") else href.split("?")[0])
-                    found.append({
-                        "title":   title_el.inner_text().strip(),
-                        "company": company_el.inner_text().strip() if company_el else "",
-                        "url":     url,
-                    })
+        time.sleep(6)
+
+        found = page.evaluate("""() => {
+            const jobs = [];
+            document.querySelectorAll('a[href*="/jobs/view/"]').forEach(a => {
+                const card = a.closest('li');
+                if (!card) return;
+                if (!card.innerText.includes('Easy Apply')) return;
+                const title = a.innerText.trim();
+                if (!title || title.length < 3) return;
+                const url = a.href.split('?')[0];
+                const companyEl = card.querySelector(
+                    '.job-card-container__primary-description, .artdeco-entity-lockup__subtitle'
+                );
+                jobs.push({
+                    title: title,
+                    company: companyEl ? companyEl.innerText.trim() : '',
+                    url: url,
+                });
+            });
+            const seen = new Set();
+            return jobs.filter(j => {
+                if (seen.has(j.url)) return false;
+                seen.add(j.url);
+                return true;
+            });
+        }""")
+
         browser.close()
+
         if found:
             job = found[0]
             TEST_URL = job["url"]
