@@ -209,7 +209,8 @@ _EXTRACT_FIELDS_JS = """() => {
 
 # ── Field filler ─────────────────────────────────────────────────────────────
 
-def _fill_field(page: Page, field: dict, answer: str) -> None:
+def _fill_field(target, field: dict, answer: str) -> None:
+    """Fill a single form field.  target can be a Playwright Page or Frame."""
     fid   = field.get("id", "")
     sel   = field.get("selector") or (f'#{fid}' if fid else None)
     ftype = field.get("type", "text")
@@ -218,13 +219,16 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
     try:
         if ftype in ("text", "email", "tel", "number", "url", "textarea",
                      "date", "search", "password"):
-            # If label is "Search" and answer looks like tech/skills, override with city
+            # If label is "Search" or city/location related, always use the city value
             label_lower = field.get("label", "").lower()
-            if label_lower in ("search", "") and ftype in ("text", "search"):
-                answer = "New Delhi, Delhi, India"
+            if label_lower in ("search", "") or any(
+                kw in label_lower for kw in ("city", "location", "where")
+            ):
+                if ftype in ("text", "search"):
+                    answer = "New Delhi, Delhi, India"
             if fid:
                 # Always use getElementById — handles any ID format safely
-                page.evaluate("""([id, val]) => {
+                target.evaluate("""([id, val]) => {
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.focus();
@@ -244,23 +248,19 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
                 }""", [fid, str(answer)])
                 _delay(0.4, 0.8)
             elif sel:
-                page.fill(sel, str(answer))
+                target.fill(sel, str(answer))
             _delay(0.8, 1.2)
 
             # LinkedIn typeahead: after typing, a dropdown may appear.
-            # Strategy 1 — JS click (bypasses pointer-events interception).
-            # Strategy 2 — keyboard: ArrowDown → Enter (only if listbox appeared).
             typeahead_selected = False
             listbox_appeared = False
             try:
-                page.wait_for_selector(
+                target.wait_for_selector(
                     '[role="listbox"], .basic-typeahead__triggered-content, '
                     '[data-test-text-entity-list-form-select]',
                     timeout=2500
                 )
                 listbox_appeared = True
-                # Try clicking the first visible option via JavaScript.
-                # page.evaluate bypasses Playwright's pointer-events actionability checks.
                 for opt_sel in [
                     '[role="listbox"] [role="option"]:first-child',
                     '[role="listbox"] li:first-child',
@@ -269,10 +269,9 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
                     '[data-test-autocomplete-result]:first-child',
                 ]:
                     try:
-                        opt = page.query_selector(opt_sel)
+                        opt = target.query_selector(opt_sel)
                         if opt and opt.is_visible():
-                            # JS click sidesteps pointer-event interception entirely
-                            page.evaluate("el => el.click()", opt)
+                            target.evaluate("el => el.click()", opt)
                             _delay(0.3, 0.5)
                             typeahead_selected = True
                             log.info(f"Typeahead JS-click: '{opt.inner_text().strip()[:60]}'")
@@ -282,40 +281,33 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
             except Exception:
                 pass
 
-            # Keyboard fallback — ONLY if a listbox appeared but click failed.
-            # Do NOT use ArrowDown+Enter on regular text fields (no listbox).
             if listbox_appeared and not typeahead_selected:
                 try:
-                    el = page.query_selector(sel)
+                    el = target.query_selector(sel)
                     if el:
                         el.press("ArrowDown")
                         _delay(0.3, 0.5)
                         el.press("Enter")
                         _delay(0.3, 0.5)
-                        typeahead_selected = True
                         log.info("Typeahead: used ArrowDown+Enter")
                 except Exception:
                     pass
 
         elif ftype == "select":
-            # Skip placeholder options ("Select an option", "Select", etc.)
             opts = field.get("options", [])
             real_opts = [o for o in opts if o.lower() not in
                          ("select an option", "select", "please select", "--select--", "")]
             if real_opts:
-                # Pick the option whose text best matches the answer (case-insensitive)
                 best = next(
                     (o for o in real_opts if answer.lower() in o.lower()
                      or o.lower() in answer.lower()),
-                    real_opts[0]  # fallback to first real option
+                    real_opts[0]
                 )
-                page.select_option(sel, label=best)
+                target.select_option(sel, label=best)
             else:
-                page.select_option(sel, label=str(answer))
+                target.select_option(sel, label=str(answer))
 
         elif ftype == "checkbox":
-            # Consent/privacy/agreement checkboxes — always check them.
-            # Other checkboxes — check only if answer is affirmative.
             label_text = field.get("label", "").lower()
             affirmative = answer.lower() in ("yes", "true", "agree", "consent",
                                               "accept", "i consent", "i agree", "1")
@@ -324,10 +316,8 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
                                 "terms", "acknowledge", "declaration"))
             if affirmative or consent_kw:
                 fid = field.get("id", "")
-                # Use JavaScript getElementById — handles special chars in IDs
-                # (LinkedIn URN IDs contain ":", "(", ")" which break CSS selectors)
                 if fid:
-                    checked = page.evaluate("""(id) => {
+                    checked = target.evaluate("""(id) => {
                         const el = document.getElementById(id);
                         if (el && !el.checked) { el.click(); return true; }
                         if (el && el.checked) return 'already';
@@ -339,8 +329,7 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
                     elif checked == "already":
                         log.info(f"Checkbox already checked: '{label_text[:50]}'")
                 else:
-                    # Fallback: CSS selector (works for simple IDs)
-                    el = page.query_selector(sel)
+                    el = target.query_selector(sel)
                     if el and not el.is_checked():
                         el.click()
                         _delay(0.2, 0.4)
@@ -348,11 +337,11 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
         elif ftype == "radio":
             name = field.get("name", "")
             if name:
-                radios = page.locator(f'input[name="{name}"]')
+                radios = target.locator(f'input[name="{name}"]')
                 for i in range(radios.count()):
                     r   = radios.nth(i)
                     rid = r.get_attribute("id") or ""
-                    lbl = page.locator(f'label[for="{rid}"]')
+                    lbl = target.locator(f'label[for="{rid}"]')
                     txt = lbl.text_content() or "" if lbl.count() > 0 else ""
                     if answer.lower() in txt.lower():
                         r.click()
@@ -439,12 +428,37 @@ def _fill_step(page: Page, profile: UserProfile,
     except Exception:
         pass
 
-    fields = page.evaluate(_EXTRACT_FIELDS_JS)
+    # ── Extract from main frame + all iframes ────────────────────────────────
+    # Greenhouse-powered LinkedIn Easy Apply embeds form fields in an iframe.
+    # We scan every frame and tag each field with a frame index so _fill_field
+    # can use the correct execution context.
+    #
+    # frame_idx=0  → main page (use page.evaluate / page.fill)
+    # frame_idx=N  → page.frames[N]
+
+    frame_objects  = [page] + [f for f in page.frames if not f.is_detached()
+                                and f.url not in ('about:blank', '', page.url)]
+    all_fields_raw: list[tuple] = []  # (frame_idx, field)
+
+    for idx, target_ctx in enumerate(frame_objects):
+        try:
+            f_fields = target_ctx.evaluate(_EXTRACT_FIELDS_JS)
+            for f in f_fields:
+                f['_fidx'] = idx
+            all_fields_raw.extend((idx, f) for f in f_fields)
+            if idx > 0 and f_fields:
+                log.info(f"iframe[{idx}] ({str(target_ctx.url)[:70]}): "
+                         f"{len(f_fields)} fields")
+        except Exception as ex:
+            log.debug(f"Frame[{idx}] extraction failed: {ex}")
+
+    fields = [f for _, f in all_fields_raw]
 
     # Log every extracted field so we can see what's detected
     log.info(f"All extracted fields ({len(fields)}): " +
              str([(f.get('label') or f.get('id'), f.get('type'),
-                   f.get('inputmode'), f.get('currentValue', '')) for f in fields]))
+                   f.get('inputmode'), f.get('currentValue', ''),
+                   f.get('_fidx', 0)) for f in fields]))
 
     if not fields:
         return
@@ -543,7 +557,10 @@ def _fill_step(page: Page, profile: UserProfile,
                 ans = "New Delhi"
 
             if ans and str(ans) not in ("RESUME_PDF", ""):
-                _fill_field(page, field, str(ans))
+                # Use the frame context that owns this field
+                fidx   = field.get("_fidx", 0)
+                target = frame_objects[fidx] if fidx < len(frame_objects) else page
+                _fill_field(target, field, str(ans))
                 _delay(0.1, 0.3)
 
 
@@ -780,7 +797,7 @@ def apply_linkedin_easy_apply(
                                 if "year" in lbl or "experience" in lbl or im in ("numeric", "decimal"):
                                     ans = str(profile.years_of_experience)
                             if ans:
-                                _fill_field(page, field, str(ans))
+                                _fill_field(page, field, str(ans))  # error fields are always main frame
                                 _delay(0.3, 0.5)
                         _delay(0.5, 1.0)
                     continue
