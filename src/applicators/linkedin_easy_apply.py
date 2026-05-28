@@ -100,13 +100,28 @@ _EXTRACT_FIELDS_JS = """() => {
         const key = id || el.name;
         if (key && seen.has(key)) return null;
         if (key) seen.add(key);
+
+        // Build a CSS selector so _fill_field can target this element even
+        // when it has no id.  Prefer id > name > placeholder > aria-label.
+        let selector = null;
+        if (!id) {
+            if (el.name) {
+                selector = '[name="' + el.name.replace(/"/g, '\\"') + '"]';
+            } else {
+                const ph = el.getAttribute('placeholder');
+                const al = el.getAttribute('aria-label');
+                if (ph) selector = '[placeholder="' + ph.replace(/"/g, '\\"') + '"]';
+                else if (al) selector = '[aria-label="' + al.replace(/"/g, '\\"') + '"]';
+            }
+        }
+
         const field = {
             id,
             name:       el.name  || '',
             label:      labelTxt || id || el.name || '',
             type,
             inputmode:  el.getAttribute('inputmode') || '',
-            selector:   null,
+            selector,
             currentValue: type === 'checkbox' ? (el.checked ? 'checked' : '')
                         : (el.value || ''),
         };
@@ -494,9 +509,39 @@ def _fill_step(page: Page, profile: UserProfile,
                  str([f.get('label') or f.get('name') or f.get('id') for f in other_fields]))
         answers = _gemini_answers(other_fields, profile, jd_summary, company, role)
         log.info(f"Gemini answers: {answers}")
+
+        # Pre-build a normalised lookup so we can match even when Gemini
+        # strips colons/hyphens from React IDs (e.g. ':r2:' → 'r2').
+        def _normalise(s: str) -> str:
+            return re.sub(r'[^a-z0-9]', '', s.lower())
+
+        norm_answers = {_normalise(k): v for k, v in answers.items()}
+
         for field in other_fields:
-            key = field.get("id") or field.get("name")
+            key        = field.get("id") or field.get("name") or ""
+            label_low  = field.get("label", "").lower()
+            ftype      = field.get("type", "text")
+
+            # 1. Exact key match
             ans = answers.get(key)
+
+            # 2. Normalised key match (handles ':r2:' == 'r2')
+            if not ans and key:
+                ans = norm_answers.get(_normalise(key))
+
+            # 3. Label-based match (Gemini sometimes uses the label as key)
+            if not ans and label_low:
+                for ak, av in answers.items():
+                    if label_low in ak.lower() or ak.lower() in label_low:
+                        ans = av
+                        break
+
+            # 4. Hardcoded city/location fallback — never leave this blank
+            if not ans and ftype in ("text", "search") and any(
+                kw in label_low for kw in ("city", "location", "search", "where")
+            ):
+                ans = "New Delhi"
+
             if ans and str(ans) not in ("RESUME_PDF", ""):
                 _fill_field(page, field, str(ans))
                 _delay(0.1, 0.3)
