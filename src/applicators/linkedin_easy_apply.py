@@ -66,7 +66,9 @@ Rules:
 - For select/radio: return the EXACT option text from the "options" list.
 - For yes/no sponsorship/authorization: answer honestly (Indian citizen, no sponsorship needed for India jobs).
 - For years of experience with a specific skill: estimate from the profile.
-- For "city" or "location": use "Delhi" or "Bangalore" based on job location.
+- For "city" or "location" or any field labelled "Search" that is a text input: use "New Delhi" (Mudit's city).
+- For fields with label containing "notice" or "notice period": use profile notice_period.
+- For fields with label containing "salary" or "CTC" or "compensation": use expected_ctc.
 - For salary in INR: use expected_ctc value.
 - Leave pre-filled fields as-is by not including them in the response.
 - No markdown, no explanations."""
@@ -85,67 +87,149 @@ Rules:
 # ── Field extraction ─────────────────────────────────────────────────────────
 
 _EXTRACT_FIELDS_JS = """() => {
-    const modal = document.querySelector(
-        '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], ' +
-        '[aria-label="Easy Apply"]'
-    );
-    const root = modal || document;
-    const inputs = root.querySelectorAll(
-        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]),' +
-        'textarea, select'
-    );
-    return [...inputs].map(el => {
-        const id   = el.id || '';
-        const name = el.name || '';
-        let label  = '';
-        if (id) {
-            const lEl = document.querySelector('label[for="' + id + '"]');
-            if (lEl) label = lEl.innerText.trim();
-        }
-        if (!label) label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
-        if (!label) {
-            const parentLbl = el.closest('label');
-            if (parentLbl) label = parentLbl.innerText.trim();
-        }
-        if (!label) {
-            const prev = el.previousElementSibling;
-            if (prev) label = prev.innerText.trim().replace(/\\*$/, '').trim();
-        }
+    // Comprehensive extraction covering all LinkedIn form patterns.
+    const fields = [];
+    const seen  = new Set();
+
+    function makeField(el, labelTxt) {
         const tag  = el.tagName.toLowerCase();
-        const type = tag === 'select' ? 'select' : (el.getAttribute('type') || 'text').toLowerCase();
-        const field = { id, name, label, type,
-            selector: id ? '#' + id : (name ? '[name="' + name + '"]' : null),
-            currentValue: (type === 'checkbox') ? (el.checked ? 'checked' : '') : (el.value || '')
+        const type = tag === 'select' ? 'select'
+                   : (el.getAttribute('type') || 'text').toLowerCase();
+        if (['hidden', 'submit', 'button', 'image', 'reset', 'file'].includes(type)) return null;
+        const id  = el.id || '';
+        const key = id || el.name;
+        if (key && seen.has(key)) return null;
+        if (key) seen.add(key);
+        const field = {
+            id,
+            name:       el.name  || '',
+            label:      labelTxt || id || el.name || '',
+            type,
+            inputmode:  el.getAttribute('inputmode') || '',
+            selector:   null,
+            currentValue: type === 'checkbox' ? (el.checked ? 'checked' : '')
+                        : (el.value || ''),
         };
+        if (!field.label) return null;
         if (type === 'select') {
             field.options = [...el.options].map(o => o.text.trim()).filter(Boolean);
         }
-        if (type === 'radio' || type === 'checkbox') {
-            if (name) {
-                const grp = document.querySelectorAll('input[name="' + name + '"]');
-                field.options = [...grp].map(r => {
-                    const lbl = document.querySelector('label[for="' + r.id + '"]');
-                    return lbl ? lbl.innerText.trim() : r.value;
-                }).filter(Boolean);
-            }
+        if ((type === 'radio' || type === 'checkbox') && el.name) {
+            field.options = [...document.querySelectorAll(
+                'input[name="' + CSS.escape(el.name) + '"]'
+            )].map(r => {
+                const l = document.querySelector('label[for="' + r.id + '"]')
+                       || document.getElementById(r.getAttribute('aria-labelledby') || '');
+                return l ? l.innerText.trim() : r.value;
+            }).filter(Boolean);
         }
-        return (id || name) && field.selector ? field : null;
-    }).filter(Boolean);
+        return field;
+    }
+
+    // ── Strategy 1: label[for] -> getElementById ──────────────────────────
+    // getElementById handles any ID format (colons, brackets, URNs).
+    document.querySelectorAll('label[for]').forEach(label => {
+        const id = label.htmlFor;
+        if (!id || seen.has(id)) return;
+        const el = document.getElementById(id);
+        if (!el) return;
+        const labelTxt = label.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
+        const f = makeField(el, labelTxt);
+        if (f) fields.push(f);
+    });
+
+    // ── Strategy 2: aria-labelledby ───────────────────────────────────────
+    // LinkedIn screening questions often use aria-labelledby instead of label[for].
+    document.querySelectorAll(
+        'input[aria-labelledby], textarea[aria-labelledby], select[aria-labelledby]'
+    ).forEach(el => {
+        const labelId  = el.getAttribute('aria-labelledby') || '';
+        const labelEl  = labelId ? document.getElementById(labelId) : null;
+        const labelTxt = labelEl ? labelEl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim() : '';
+        const f = makeField(el, labelTxt || el.getAttribute('aria-label') || '');
+        if (f) fields.push(f);
+    });
+
+    // ── Strategy 3: LinkedIn data-test component containers ───────────────
+    // Covers [data-test-single-line-text-form-component], [data-test-text-selectable-option__input], etc.
+    const liContainers = [
+        '[data-test-single-line-text-form-component]',
+        '[data-test-multiline-text-form-component]',
+        '[data-test-text-selectable-option__input]',
+        '[data-test-numeric-text-form-component]',
+        '[data-test-form-builder-radio-button-form-component]',
+        '[data-test-checkbox-form-component]',
+        '[data-test-dropdown-form-component]',
+    ];
+    document.querySelectorAll(liContainers.join(',')).forEach(container => {
+        const inp = container.querySelector('input, textarea, select');
+        if (!inp) return;
+        // Try label inside container first
+        const lbl = container.querySelector('label, legend, h3, h4, [class*="label"]');
+        const lblTxt = lbl ? lbl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim() : '';
+        const f = makeField(inp, lblTxt || inp.getAttribute('aria-label') || '');
+        if (f) fields.push(f);
+    });
+
+    // ── Strategy 4: aria-label / placeholder fallback ────────────────────
+    // Catches city typeahead and any remaining unlabelled inputs.
+    document.querySelectorAll(
+        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]),' +
+        'textarea, select'
+    ).forEach(el => {
+        const id  = el.id || '';
+        const key = id || el.name;
+        if (key && seen.has(key)) return;
+        const ariaLabel   = el.getAttribute('aria-label')   || '';
+        const placeholder = el.getAttribute('placeholder')  || '';
+        const labelTxt    = ariaLabel || placeholder || '';
+        if (!labelTxt && !id && !el.name) return;
+        const f = makeField(el, labelTxt || id || el.name);
+        if (f) fields.push(f);
+    });
+
+    return fields;
 }"""
 
 
 # ── Field filler ─────────────────────────────────────────────────────────────
 
 def _fill_field(page: Page, field: dict, answer: str) -> None:
-    sel   = field["selector"]
+    fid   = field.get("id", "")
+    sel   = field.get("selector") or (f'#{fid}' if fid else None)
     ftype = field.get("type", "text")
+    if not sel and not fid:
+        return
     try:
         if ftype in ("text", "email", "tel", "number", "url", "textarea",
                      "date", "search", "password"):
-            # Always fill — overwrite any stale/pre-filled value.
-            # Gemini is given the correct profile values so pre-filled fields
-            # get their correct value written back; screening answers get updated.
-            page.fill(sel, str(answer))
+            # If label is "Search" and answer looks like tech/skills, override with city
+            label_lower = field.get("label", "").lower()
+            if label_lower in ("search", "") and ftype in ("text", "search"):
+                answer = "New Delhi, Delhi, India"
+            if fid:
+                # Always use getElementById — handles any ID format safely
+                page.evaluate("""([id, val]) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.focus();
+                    // Use nativeInputValueSetter for React-controlled inputs
+                    const nativeSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ) || Object.getOwnPropertyDescriptor(
+                        window.HTMLTextAreaElement.prototype, 'value'
+                    );
+                    if (nativeSetter && nativeSetter.set) {
+                        nativeSetter.set.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                }""", [fid, str(answer)])
+                _delay(0.4, 0.8)
+            elif sel:
+                page.fill(sel, str(answer))
             _delay(0.8, 1.2)
 
             # LinkedIn typeahead: after typing, a dropdown may appear.
@@ -263,50 +347,147 @@ def _fill_field(page: Page, field: dict, answer: str) -> None:
 
 
 def _fill_step(page: Page, profile: UserProfile,
-               jd_summary: str, company: str, role: str, pdf_path: str) -> None:
-    """Extract and fill all fields visible in the current modal step."""
+               jd_summary: str, company: str, role: str, pdf_path: str,
+               force_fill: bool = False) -> None:
+    """Extract and fill all fields visible in the current modal step.
+
+    force_fill=True — include fields that already have a value (used when
+    stuck in a Review loop so we can overwrite stale/wrong data).
+    """
+
+    # ── Resume upload step ────────────────────────────────────────────────────
+    # LinkedIn shows a resume selection page with hidden file inputs.
+    # Detect it by checking for the document-upload section.
+    # Only treat as resume step if the heading says "Resume"
+    resume_section = None
+    heading = page.query_selector(
+        '.jobs-easy-apply-modal h3, .jobs-easy-apply-modal h2, '
+        '.jobs-easy-apply-content h3, .jobs-easy-apply-content h2'
+    )
+    heading_text = heading.inner_text().strip().lower() if heading else ""
+    if "resume" in heading_text or "cv" in heading_text:
+        resume_section = page.query_selector(
+            '.jobs-document-upload-redesign-card__container, '
+            '.jobs-document-upload'
+        )
+    if resume_section and pdf_path:
+        try:
+            # Count resume cards before upload so we can identify the new one after
+            before_count = page.evaluate("""() =>
+                document.querySelectorAll('.jobs-document-upload-redesign-card__container').length
+            """)
+            log.info(f"LinkedIn Easy Apply: {before_count} resumes already on file")
+
+            # Upload the tailored PDF via the hidden file input
+            # The "Upload resume" label triggers this input — we set files directly
+            file_inputs = page.evaluate("""() => {
+                return [...document.querySelectorAll('input[type="file"]')]
+                    .map((el, i) => ({index: i, id: el.id || '', name: el.name || ''}));
+            }""")
+            if file_inputs:
+                file_el = page.locator('input[type="file"]').nth(0)
+                file_el.set_input_files(pdf_path)
+                log.info(f"LinkedIn Easy Apply: uploading tailored resume — {pdf_path}")
+                _delay(3.0, 4.0)  # wait for LinkedIn to process the upload
+
+                # After upload, select the newly added resume (first card = newest)
+                selected = page.evaluate("""() => {
+                    const radios = [...document.querySelectorAll(
+                        'input.jobs-document-upload-redesign-card__toggle[type="radio"]'
+                    )];
+                    if (radios.length === 0) return 'no_radios';
+                    // LinkedIn adds new resume at top — click first radio
+                    radios[0].click();
+                    const label = document.querySelector(
+                        'label.jobs-document-upload-redesign-card__toggle-label'
+                    );
+                    return 'selected: ' + (label ? label.innerText.trim() : 'first');
+                }""")
+                log.info(f"LinkedIn Easy Apply: resume selection — {selected}")
+                _delay(0.5, 1.0)
+        except Exception as e:
+            log.warning(f"LinkedIn Easy Apply: resume upload error — {e}")
+        # Resume step done — step loop will click Next
+        return
+
+    # Scroll the modal content area so that all fields are rendered/visible.
+    try:
+        page.evaluate("""() => {
+            const scroller = document.querySelector(
+                '.artdeco-modal__content, '
+                + '.jobs-easy-apply-modal .artdeco-modal__content, '
+                + '.jobs-easy-apply-modal__content'
+            );
+            if (scroller) scroller.scrollTop = 0;
+        }""")
+        _delay(0.3, 0.5)
+    except Exception:
+        pass
+
     fields = page.evaluate(_EXTRACT_FIELDS_JS)
+
+    # Log every extracted field so we can see what's detected
+    log.info(f"All extracted fields ({len(fields)}): " +
+             str([(f.get('label') or f.get('id'), f.get('type'),
+                   f.get('inputmode'), f.get('currentValue', '')) for f in fields]))
+
     if not fields:
         return
 
-    # Separate file fields
-    file_fields  = [f for f in fields if f["type"] == "file"]
-
-    # Include unfilled fields:
+    # Include fields that need filling:
     # - text/textarea with empty currentValue
-    # - select with placeholder value ("Select an option", empty)
-    # - radio/checkbox (always include)
+    # - select with placeholder value
+    # - numeric inputs with empty value OR value "0" (unfilled default)
+    # - radio/checkbox (always verify)
+    # - any field with a visible validation error
+    # - if force_fill: include everything (used when stuck in Review loop)
     PLACEHOLDER_VALS = {"", "select an option", "select", "please select", "--select--"}
-    other_fields = [
-        f for f in fields
-        if f["type"] != "file" and (
-            f.get("currentValue", "").lower() in PLACEHOLDER_VALS
-            or f["type"] in ("radio", "checkbox")
-        )
-    ]
 
-    # Upload resume — LinkedIn file input IDs contain "(" and ")" which break CSS selectors.
-    # Use JavaScript to find the first resume file input and set files via locator.
-    if pdf_path and file_fields:
-        try:
-            # Find file input elements via JS (avoids CSS selector issues with special chars)
-            file_inputs = page.evaluate("""() => {
-                const inputs = document.querySelectorAll('input[type="file"]');
-                return [...inputs].map((el, i) => ({index: i, id: el.id, name: el.name,
-                    isResume: (el.id || '').includes('resume') || (el.name || '').includes('resume')}));
-            }""")
-            # Prefer resume input, else first file input
-            target = next((f for f in file_inputs if f["isResume"]), None)
-            if not target and file_inputs:
-                target = file_inputs[0]
-            if target is not None:
-                # Use nth() to target by index — avoids special-char selector issues
-                file_el = page.locator('input[type="file"]').nth(target["index"])
-                file_el.set_input_files(pdf_path)
-                log.info("LinkedIn Easy Apply: resume uploaded")
-                _delay(0.5, 1.0)
-        except Exception as e:
-            log.warning(f"LinkedIn Easy Apply: file upload error — {e}")
+    # Collect IDs of fields with visible validation errors
+    error_field_ids = set(page.evaluate("""() => {
+        const errorEls = document.querySelectorAll(
+            '[class*="artdeco-inline-feedback--error"], [class*="form-element__error"], '
+            + '[id$="-error"]:not(:empty)'
+        );
+        const ids = new Set();
+        errorEls.forEach(el => {
+            const fieldId = el.id ? el.id.replace(/-error$/, '') : '';
+            if (fieldId) ids.add(fieldId);
+            const container = el.closest(
+                '[data-test-single-line-text-form-component], '
+                + '[data-test-form-element], .artdeco-text-input'
+            );
+            if (container) {
+                const inp = container.querySelector('input, textarea, select');
+                if (inp && inp.id) ids.add(inp.id);
+            }
+        });
+        return [...ids];
+    }""") or [])
+
+    def _needs_fill(f: dict) -> bool:
+        if f.get("type") == "file":
+            return False
+        if force_fill:
+            return True
+        cv = f.get("currentValue", "").lower()
+        ftype = f.get("type", "text")
+        inputmode = f.get("inputmode", "")
+        # Always include radio/checkbox (must verify selection)
+        if ftype in ("radio", "checkbox"):
+            return True
+        # Include if error
+        if f.get("id", "") in error_field_ids:
+            return True
+        # Include if empty/placeholder
+        if cv in PLACEHOLDER_VALS:
+            return True
+        # Numeric input with value "0" is considered unfilled
+        if inputmode in ("numeric", "decimal") and cv in ("0", ""):
+            return True
+        return False
+
+    other_fields = [f for f in fields if _needs_fill(f)]
 
     if other_fields:
         log.info(f"Fields to fill ({len(other_fields)}): " +
@@ -389,7 +570,11 @@ def apply_linkedin_easy_apply(
                 _delay(1.5, 2.5)
 
             # ── Step loop ────────────────────────────────────────────────────
-            for step in range(20):  # increase limit to handle longer forms
+            # review_streak tracks consecutive Review clicks without progress.
+            # After 2 straight Reviews we switch to force_fill mode.
+            review_streak = 0
+
+            for step in range(25):
                 # Wait for modal to be visible
                 try:
                     page.wait_for_selector(
@@ -398,13 +583,33 @@ def apply_linkedin_easy_apply(
                         timeout=8000
                     )
                 except PWTimeout:
+                    # Modal closed — check if it's because application was submitted
+                    try:
+                        page.wait_for_selector(
+                            "[data-test-modal-id='post-apply-modal'], "
+                            ".jobs-post-apply-modal, "
+                            "[aria-label*='application was sent'], "
+                            "h2:has-text('Application submitted'), "
+                            "h2:has-text('Your application was sent')",
+                            timeout=3000
+                        )
+                        log.info(f"✅ Applied (Easy Apply): '{role}' @ {company}")
+                        return True
+                    except PWTimeout:
+                        pass
                     log.warning(f"Easy Apply modal disappeared at step {step}")
                     break
 
                 _delay(1.0, 1.5)
 
+                # Force-fill when we've been clicking Review without progress.
+                force_fill = review_streak >= 2
+                if force_fill:
+                    log.warning(f"Step {step}: stuck on Review (streak={review_streak}), forcing full fill")
+
                 # Fill all fields in current step
-                _fill_step(page, profile, jd_summary, company, role, pdf_path)
+                _fill_step(page, profile, jd_summary, company, role, pdf_path,
+                           force_fill=force_fill)
                 _delay(0.5, 1.0)
 
                 # ── Button priority: Submit > Review > Next ───────────────
@@ -443,9 +648,96 @@ def apply_linkedin_easy_apply(
                         break
 
                 if review_btn:
-                    log.info(f"Step {step}: clicking Review")
-                    review_btn.click()
-                    _delay(1.0, 2.0)
+                    review_streak += 1
+                    log.info(f"Step {step}: clicking Review (streak={review_streak})")
+                    # Use JS click to bypass any overlay interception
+                    page.evaluate("el => el.click()", review_btn)
+                    _delay(1.5, 2.0)
+
+                    # After clicking Review, check for validation errors.
+                    # LinkedIn renders error messages in elements whose id = fieldId + "-error".
+                    # Also look inside artdeco-inline-feedback--error containers.
+                    error_fields = page.evaluate("""() => {
+                        const results = [];
+                        const seen = new Set();
+                        // Pattern A: [id$="-error"] elements
+                        document.querySelectorAll('[id$="-error"]').forEach(errEl => {
+                            const errTxt = errEl.innerText.trim();
+                            if (!errTxt) return;
+                            const inputId = errEl.id.replace(/-error$/, '');
+                            if (seen.has(inputId)) return;
+                            const inp = document.getElementById(inputId);
+                            if (!inp) return;
+                            seen.add(inputId);
+                            let labelTxt = '';
+                            document.querySelectorAll('label[for]').forEach(l => {
+                                if (l.htmlFor === inputId)
+                                    labelTxt = l.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
+                            });
+                            if (!labelTxt) {
+                                const lbId = inp.getAttribute('aria-labelledby');
+                                if (lbId) {
+                                    const lbEl = document.getElementById(lbId);
+                                    if (lbEl) labelTxt = lbEl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
+                                }
+                            }
+                            results.push({
+                                id: inputId,
+                                label: labelTxt || inputId,
+                                type: inp.type || 'text',
+                                inputmode: inp.getAttribute('inputmode') || '',
+                                currentValue: inp.value || '',
+                                error: errTxt,
+                                selector: null,
+                                name: inp.name || '',
+                            });
+                        });
+                        // Pattern B: artdeco-inline-feedback--error without the id convention
+                        document.querySelectorAll('[class*="artdeco-inline-feedback--error"]').forEach(errEl => {
+                            const errTxt = errEl.innerText.trim();
+                            if (!errTxt) return;
+                            const container = errEl.closest(
+                                '[data-test-single-line-text-form-component], '
+                                + '[data-test-numeric-text-form-component], '
+                                + '[data-test-form-element]'
+                            );
+                            if (!container) return;
+                            const inp = container.querySelector('input, textarea, select');
+                            if (!inp || !inp.id || seen.has(inp.id)) return;
+                            seen.add(inp.id);
+                            const lbl = container.querySelector('label, [class*="label"]');
+                            const labelTxt = lbl ? lbl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim() : '';
+                            results.push({
+                                id: inp.id,
+                                label: labelTxt || inp.id,
+                                type: inp.type || 'text',
+                                inputmode: inp.getAttribute('inputmode') || '',
+                                currentValue: inp.value || '',
+                                error: errTxt,
+                                selector: null,
+                                name: inp.name || '',
+                            });
+                        });
+                        return results;
+                    }""")
+                    if error_fields:
+                        log.info(f"Step {step}: {len(error_fields)} error fields — "
+                                 f"{[f['label'][:40] for f in error_fields]}")
+                        answers = _gemini_answers(error_fields, profile, jd_summary, company, role)
+                        log.info(f"Gemini answers for errors: {answers}")
+                        for field in error_fields:
+                            key = field.get("id") or field.get("name")
+                            ans = (answers.get(key)
+                                   or answers.get(field.get("label", "")))
+                            if not ans:
+                                lbl = field.get("label", "").lower()
+                                im  = field.get("inputmode", "")
+                                if "year" in lbl or "experience" in lbl or im in ("numeric", "decimal"):
+                                    ans = str(profile.years_of_experience)
+                            if ans:
+                                _fill_field(page, field, str(ans))
+                                _delay(0.3, 0.5)
+                        _delay(0.5, 1.0)
                     continue
 
                 # Check Next / Continue
@@ -461,8 +753,10 @@ def apply_linkedin_easy_apply(
                         break
 
                 if next_btn:
+                    review_streak = 0   # made progress
                     log.info(f"Step {step}: clicking Next")
-                    next_btn.click()
+                    # JS click to bypass any overlay
+                    page.evaluate("el => el.click()", next_btn)
                     _delay(1.0, 2.0)
                     continue
 
@@ -477,7 +771,7 @@ def apply_linkedin_easy_apply(
                     if dry_run and "submit" in btn_text:
                         log.info(f"DRY RUN — would submit: '{role}' @ {company}")
                         return True
-                    fallback.click()
+                    page.evaluate("el => el.click()", fallback)
                     _delay(1.0, 2.0)
                     if "submit" in btn_text:
                         log.info(f"✅ Applied (Easy Apply): '{role}' @ {company}")
@@ -485,7 +779,6 @@ def apply_linkedin_easy_apply(
                     continue
 
                 log.warning(f"Step {step}: no navigation button found — checking for errors")
-                # Log any visible error messages to help diagnose
                 try:
                     errors = page.eval_on_selector_all(
                         ".artdeco-inline-feedback--error, [class*='error']",
