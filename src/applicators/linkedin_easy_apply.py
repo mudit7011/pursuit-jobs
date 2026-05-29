@@ -166,7 +166,6 @@ _EXTRACT_FIELDS_JS = """() => {
     });
 
     // ── Strategy 3: LinkedIn data-test component containers ───────────────
-    // Covers [data-test-single-line-text-form-component], [data-test-text-selectable-option__input], etc.
     const liContainers = [
         '[data-test-single-line-text-form-component]',
         '[data-test-multiline-text-form-component]',
@@ -175,20 +174,37 @@ _EXTRACT_FIELDS_JS = """() => {
         '[data-test-form-builder-radio-button-form-component]',
         '[data-test-checkbox-form-component]',
         '[data-test-dropdown-form-component]',
+        '[data-test-single-typeahead-entity-form-component]',
     ];
     document.querySelectorAll(liContainers.join(',')).forEach(container => {
         const inp = container.querySelector('input, textarea, select');
         if (!inp) return;
-        // Try label inside container first
         const lbl = container.querySelector('label, legend, h3, h4, [class*="label"]');
         const lblTxt = lbl ? lbl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim() : '';
         const f = makeField(inp, lblTxt || inp.getAttribute('aria-label') || '');
         if (f) fields.push(f);
     });
 
+    // ── Strategy 3b: LinkedIn typeahead with -la/-lv ID split ─────────────
+    // LinkedIn typeahead: label[for] ends in "-la" but input ID ends in "-lv".
+    // Standard getElementById(label.htmlFor) misses these — match by stripping suffix.
+    document.querySelectorAll('label[for$="-la"]').forEach(label => {
+        const laId = label.htmlFor;
+        const lvId = laId.slice(0, -3) + '-lv';
+        if (seen.has(laId) || seen.has(lvId)) return;
+        const el = document.getElementById(lvId) || document.getElementById(laId);
+        if (!el) return;
+        const labelTxt = label.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
+        const f = makeField(el, labelTxt);
+        if (f) fields.push(f);
+    });
+
     // ── Strategy 4: aria-label / placeholder fallback ────────────────────
-    // Catches city typeahead and any remaining unlabelled inputs.
-    document.querySelectorAll(
+    // Only scan inside the modal — skip LinkedIn's global nav search bar.
+    const modalRoot = document.querySelector(
+        '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], .jobs-easy-apply-content'
+    ) || document;
+    modalRoot.querySelectorAll(
         'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]),' +
         'textarea, select'
     ).forEach(el => {
@@ -227,18 +243,28 @@ def _fill_field(target, field: dict, answer: str) -> None:
             if is_city_field and ftype in ("text", "search"):
                 answer = "New Delhi"
 
-            # City/location typeahead fields need real keyboard events (not JS injection)
-            # because Greenhouse/React typeaheads only respond to actual keystrokes.
+            # City/location typeahead: focus via getElementById (safe for URN IDs
+            # with colons/brackets), then type real keystrokes via keyboard API.
             if is_city_field and ftype in ("text", "search"):
                 try:
-                    loc_sel = f'#{fid}' if fid else sel
-                    target.click(loc_sel)
-                    _delay(0.2, 0.4)
-                    target.fill(loc_sel, "")
-                    target.type(loc_sel, "New Delhi", delay=60)
+                    if fid:
+                        focused = target.evaluate("""(id) => {
+                            const el = document.getElementById(id);
+                            if (!el) return false;
+                            el.focus();
+                            el.value = '';
+                            el.dispatchEvent(new Event('input', {bubbles:true}));
+                            return true;
+                        }""", fid)
+                    else:
+                        focused = False
+                    if not focused and sel:
+                        target.click(sel)
+                        target.fill(sel, "")
+                    target.keyboard.type("New Delhi", delay=60)
                     _delay(1.0, 1.5)
                 except Exception as e:
-                    log.debug(f"City field type() failed: {e}")
+                    log.debug(f"City field keyboard.type failed: {e}")
             elif fid:
                 # Always use getElementById — handles any ID format safely
                 target.evaluate("""([id, val]) => {
@@ -288,8 +314,18 @@ def _fill_field(target, field: dict, answer: str) -> None:
                     try:
                         opt = target.query_selector(opt_sel)
                         if opt and opt.is_visible():
-                            target.evaluate("el => el.click()", opt)
-                            _delay(0.3, 0.5)
+                            target.evaluate("""el => {
+                                el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                                el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                                el.click();
+                            }""", opt)
+                            _delay(0.4, 0.6)
+                            # Trigger blur on the input so Greenhouse validates the selection
+                            if fid:
+                                target.evaluate("""(id) => {
+                                    const el = document.getElementById(id);
+                                    if (el) el.dispatchEvent(new Event('blur', {bubbles:true}));
+                                }""", fid)
                             typeahead_selected = True
                             log.info(f"Typeahead JS-click: '{opt.inner_text().strip()[:60]}'")
                             break
