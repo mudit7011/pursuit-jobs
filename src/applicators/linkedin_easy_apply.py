@@ -2,7 +2,7 @@
 LinkedIn Easy Apply applicator.
 Uses saved session (sessions/linkedin.json) to navigate to a job page,
 click Easy Apply, navigate through all modal steps with Gemini filling
-any custom screening questions, then submit.
+screening questions, then submit.
 """
 
 import os
@@ -23,55 +23,147 @@ _SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/linkedin
 _MOCK_GEMINI  = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 
 genai.configure(api_key=GEMINI_API_KEY)
-_model = genai.GenerativeModel("gemini-2.5-flash")
+_model = genai.GenerativeModel("gemini-2.0-flash")
+
+# ATS domains whose iframes we scan (LinkedIn-native iframes are excluded)
+_ATS_DOMAINS = (
+    "greenhouse.io", "lever.co", "workable.com", "ashbyhq.com",
+    "smartrecruiters.com", "jobvite.com", "icims.com", "taleo.net",
+    "breezy.hr", "recruitee.com",
+)
 
 
 def _delay(a=0.6, b=1.5):
     time.sleep(random.uniform(a, b))
 
 
-# ── Gemini helper ────────────────────────────────────────────────────────────
+# ── Rules-based answers (no Gemini tokens needed) ────────────────────────────
+
+def _rules_based_answer(field: dict, profile: UserProfile) -> str | None:
+    """Return an answer for common fields without calling Gemini.
+    Returns None if we don't know — caller should ask Gemini then."""
+    label = field.get("label", "").lower()
+    ftype = field.get("type", "text")
+    name  = field.get("name", "").lower()
+
+    # Skip file inputs
+    if ftype == "file":
+        return None
+
+    # Name fields
+    if any(kw in label for kw in ("first name",)):
+        return profile.name.split()[0]
+    if any(kw in label for kw in ("last name", "surname")):
+        parts = profile.name.split()
+        return parts[-1] if len(parts) > 1 else profile.name
+    if any(kw in label for kw in ("full name", "your name", "candidate name")) and "first" not in label:
+        return profile.name
+
+    # Contact
+    if any(kw in label for kw in ("email", "e-mail")):
+        return profile.email
+    if any(kw in label for kw in ("phone", "mobile", "contact number", "cell", "whatsapp")):
+        return profile.phone
+    if any(kw in label for kw in ("linkedin", "linkedin url", "linkedin profile", "linkedin link")):
+        return profile.linkedin
+    if any(kw in label for kw in ("github",)):
+        return profile.github or ""
+    if any(kw in label for kw in ("portfolio", "website", "personal site")):
+        return profile.portfolio or ""
+
+    # Location — city typeahead or plain text
+    if ftype in ("text", "search") and any(
+        kw in label for kw in ("city", "location", "where", "search", "current city")
+    ):
+        return "New Delhi"
+
+    # Experience (total / overall — not skill-specific)
+    if any(kw in label for kw in (
+        "years of experience", "total experience", "overall experience",
+        "how many years", "total years", "work experience"
+    )) and "specific" not in label and "technology" not in label and "tool" not in label:
+        return str(profile.years_of_experience)
+
+    # Notice period / availability
+    if any(kw in label for kw in ("notice period", "notice", "availability", "joining", "when can you join")):
+        return profile.notice_period
+
+    # CTC / Salary
+    if any(kw in label for kw in ("current ctc", "current salary", "current compensation", "present salary")):
+        return str(profile.current_ctc)
+    if any(kw in label for kw in (
+        "expected ctc", "expected salary", "salary expectation",
+        "desired salary", "desired compensation", "ctc expectation"
+    )):
+        return profile.expected_ctc
+
+    # Work authorization
+    if any(kw in label for kw in (
+        "authorized to work", "work authorization", "right to work",
+        "eligible to work", "legally authorized"
+    )):
+        return "Yes"
+    if "require" in label and "sponsor" in label:
+        return "No"  # No sponsorship needed for India
+
+    # Education
+    if any(kw in label for kw in ("college", "university", "institution", "school")) and ftype == "text":
+        return profile.college
+    if any(kw in label for kw in ("degree", "qualification", "highest education")) and ftype == "text":
+        return profile.degree
+    if "cgpa" in label or ("gpa" in label and "company" not in label):
+        return str(profile.cgpa)
+    if any(kw in label for kw in ("graduation year", "year of graduation", "passed out", "batch")):
+        return str(profile.graduation_year)
+
+    # "Follow company" — always optional, skip silently
+    if "follow" in label and ftype == "checkbox":
+        return None  # don't touch it
+
+    return None
+
+
+# ── Gemini helper (only for unknown fields) ───────────────────────────────────
 
 def _gemini_answers(fields: list, profile: UserProfile,
                     jd_summary: str, company: str, role: str) -> dict:
-    """Ask Gemini to fill every form field. Returns {field_key: answer}."""
+    """Ask Gemini only for fields that rules-based couldn't answer.
+    Returns {field_key: answer}."""
     if _MOCK_GEMINI or not fields:
         return {}
 
-    prompt = f"""You are filling a LinkedIn Easy Apply form.
-Role: {role} at {company}
-Job summary: {jd_summary[:400]}
+    # Strip properties Gemini doesn't need (saves tokens)
+    slim_fields = []
+    for f in fields:
+        sf = {
+            "key":   f.get("id") or f.get("name") or f.get("label", ""),
+            "label": f.get("label", ""),
+            "type":  f.get("type", "text"),
+        }
+        if f.get("options"):
+            sf["options"] = f["options"]
+        if f.get("currentValue"):
+            sf["current"] = f["currentValue"]
+        slim_fields.append(sf)
 
-Candidate:
-Name: {profile.name}
-Email: {profile.email}
-Phone: {profile.phone}
-LinkedIn: {profile.linkedin}
-Experience: {profile.years_of_experience} years
-Skills: {', '.join(profile.skills[:12])}
-Location preference: {profile.location_preference}
-Notice period: {profile.notice_period}
-Current CTC: {profile.current_ctc}
-Expected CTC: {profile.expected_ctc}
-Work authorization: {profile.work_authorization}
-College: {profile.college} | {profile.degree} | CGPA {profile.cgpa}
-Graduation year: {profile.graduation_year}
-
-Form fields (fill each):
-{json.dumps(fields, indent=2)}
-
-Rules:
-- Return ONLY a JSON object {{field_key: answer}}.
-- field_key = field id if present, else field name.
-- For select/radio: return the EXACT option text from the "options" list.
-- For yes/no sponsorship/authorization: answer honestly (Indian citizen, no sponsorship needed for India jobs).
-- For years of experience with a specific skill: estimate from the profile.
-- For "city" or "location" or any field labelled "Search" that is a text input: use "New Delhi" (Mudit's city).
-- For fields with label containing "notice" or "notice period": use profile notice_period.
-- For fields with label containing "salary" or "CTC" or "compensation": use expected_ctc.
-- For salary in INR: use expected_ctc value.
-- Leave pre-filled fields as-is by not including them in the response.
-- No markdown, no explanations."""
+    prompt = (
+        f"Fill LinkedIn Easy Apply form. Return ONLY a JSON object, no markdown.\n"
+        f"Role: {role} at {company}\n"
+        f"JD: {jd_summary[:200]}\n"
+        f"Candidate: {profile.name}, {profile.years_of_experience}yr exp, "
+        f"skills: {', '.join(profile.skills[:10])}, "
+        f"location: {profile.location_preference}, "
+        f"notice: {profile.notice_period}, expected CTC: {profile.expected_ctc}, "
+        f"auth: {profile.work_authorization}\n"
+        f"Fields:\n{json.dumps(slim_fields)}\n"
+        f"Rules:\n"
+        f"- key = field id/name as shown\n"
+        f"- For select/radio: exact option text from options list\n"
+        f"- Work auth in India = Yes, no sponsorship needed\n"
+        f"- Skill-specific years: estimate from profile\n"
+        f"- For numeric fields (0-99 range) for experience: give integer\n"
+        f"- Return only JSON {{key: answer}}"
+    )
 
     try:
         resp = _model.generate_content(prompt)
@@ -80,14 +172,13 @@ Rules:
         raw = re.sub(r"\s*```$", "", raw)
         return json.loads(raw)
     except Exception as e:
-        log.warning(f"Gemini answer generation failed: {e}")
+        log.warning(f"Gemini failed: {e}")
         return {}
 
 
-# ── Field extraction ─────────────────────────────────────────────────────────
+# ── Field extraction JS ───────────────────────────────────────────────────────
 
 _EXTRACT_FIELDS_JS = """() => {
-    // Comprehensive extraction covering all LinkedIn form patterns.
     const fields = [];
     const seen  = new Set();
 
@@ -101,8 +192,6 @@ _EXTRACT_FIELDS_JS = """() => {
         if (key && seen.has(key)) return null;
         if (key) seen.add(key);
 
-        // Build a CSS selector so _fill_field can target this element even
-        // when it has no id.  Prefer id > name > placeholder > aria-label.
         let selector = null;
         if (!id) {
             if (el.name) {
@@ -116,11 +205,8 @@ _EXTRACT_FIELDS_JS = """() => {
         }
 
         const field = {
-            id,
-            name:       el.name  || '',
-            label:      labelTxt || id || el.name || '',
-            type,
-            inputmode:  el.getAttribute('inputmode') || '',
+            id, name: el.name || '', label: labelTxt || id || el.name || '',
+            type, inputmode: el.getAttribute('inputmode') || '',
             selector,
             currentValue: type === 'checkbox' ? (el.checked ? 'checked' : '')
                         : (el.value || ''),
@@ -141,8 +227,7 @@ _EXTRACT_FIELDS_JS = """() => {
         return field;
     }
 
-    // ── Strategy 1: label[for] -> getElementById ──────────────────────────
-    // getElementById handles any ID format (colons, brackets, URNs).
+    // Strategy 1: label[for] -> getElementById
     document.querySelectorAll('label[for]').forEach(label => {
         const id = label.htmlFor;
         if (!id || seen.has(id)) return;
@@ -153,8 +238,7 @@ _EXTRACT_FIELDS_JS = """() => {
         if (f) fields.push(f);
     });
 
-    // ── Strategy 2: aria-labelledby ───────────────────────────────────────
-    // LinkedIn screening questions often use aria-labelledby instead of label[for].
+    // Strategy 2: aria-labelledby
     document.querySelectorAll(
         'input[aria-labelledby], textarea[aria-labelledby], select[aria-labelledby]'
     ).forEach(el => {
@@ -165,7 +249,7 @@ _EXTRACT_FIELDS_JS = """() => {
         if (f) fields.push(f);
     });
 
-    // ── Strategy 3: LinkedIn data-test component containers ───────────────
+    // Strategy 3: LinkedIn data-test containers
     const liContainers = [
         '[data-test-single-line-text-form-component]',
         '[data-test-multiline-text-form-component]',
@@ -185,9 +269,7 @@ _EXTRACT_FIELDS_JS = """() => {
         if (f) fields.push(f);
     });
 
-    // ── Strategy 3b: LinkedIn typeahead with -la/-lv ID split ─────────────
-    // LinkedIn typeahead: label[for] ends in "-la" but input ID ends in "-lv".
-    // Standard getElementById(label.htmlFor) misses these — match by stripping suffix.
+    // Strategy 3b: LinkedIn typeahead -la/-lv split
     document.querySelectorAll('label[for$="-la"]').forEach(label => {
         const laId = label.htmlFor;
         const lvId = laId.slice(0, -3) + '-lv';
@@ -199,8 +281,7 @@ _EXTRACT_FIELDS_JS = """() => {
         if (f) fields.push(f);
     });
 
-    // ── Strategy 4: aria-label / placeholder fallback ────────────────────
-    // Only scan inside the modal — skip LinkedIn's global nav search bar.
+    // Strategy 4: aria-label / placeholder fallback (inside modal only)
     const modalRoot = document.querySelector(
         '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], .jobs-easy-apply-content'
     ) || document;
@@ -226,135 +307,113 @@ _EXTRACT_FIELDS_JS = """() => {
 # ── Field filler ─────────────────────────────────────────────────────────────
 
 def _fill_field(target, field: dict, answer: str) -> None:
-    """Fill a single form field.  target can be a Playwright Page or Frame."""
+    """Fill a single form field. target = Playwright Page or Frame."""
     fid   = field.get("id", "")
     sel   = field.get("selector") or (f'#{fid}' if fid else None)
     ftype = field.get("type", "text")
     if not sel and not fid:
         return
+
     try:
         if ftype in ("text", "email", "tel", "number", "url", "textarea",
                      "date", "search", "password"):
-            # If label is "Search" or city/location related, always use the city value
             label_lower = field.get("label", "").lower()
-            is_city_field = label_lower in ("search", "") or any(
-                kw in label_lower for kw in ("city", "location", "where")
-            )
-            if is_city_field and ftype in ("text", "search"):
-                answer = "New Delhi"
+            is_city = ftype in ("text", "search") and any(
+                kw in label_lower for kw in ("city", "location", "where", "search", "")
+            ) and label_lower not in ("skills", "company", "job title", "title")
 
-            # City/location typeahead: focus via getElementById (safe for URN IDs
-            # with colons/brackets), then type real keystrokes via keyboard API.
-            if is_city_field and ftype in ("text", "search"):
+            if is_city:
+                # Typeahead fill: focus → clear → type → pick first real option
+                if fid:
+                    target.evaluate("""(id) => {
+                        const el = document.getElementById(id);
+                        if (!el) return;
+                        el.focus();
+                        el.value = '';
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                    }""", fid)
+                elif sel:
+                    target.click(sel)
+                    target.fill(sel, "")
+                target.keyboard.type("New Delhi", delay=60)
+                _delay(1.2, 1.8)
+
+                # Pick first REAL option (skip "See all results" type links)
                 try:
-                    if fid:
-                        focused = target.evaluate("""(id) => {
-                            const el = document.getElementById(id);
-                            if (!el) return false;
-                            el.focus();
-                            el.value = '';
-                            el.dispatchEvent(new Event('input', {bubbles:true}));
-                            return true;
-                        }""", fid)
-                    else:
-                        focused = False
-                    if not focused and sel:
-                        target.click(sel)
-                        target.fill(sel, "")
-                    target.keyboard.type("New Delhi", delay=60)
-                    _delay(1.0, 1.5)
-                except Exception as e:
-                    log.debug(f"City field keyboard.type failed: {e}")
+                    target.wait_for_selector(
+                        '[role="listbox"], [role="option"], '
+                        '.basic-typeahead__triggered-content, '
+                        'ul[class*="typeahead"], ul[class*="dropdown"]',
+                        timeout=4000
+                    )
+                    picked = False
+                    for opt_sel in [
+                        '[role="option"]',
+                        '[role="listbox"] li',
+                        '.basic-typeahead__selectable',
+                        '[data-test-autocomplete-result]',
+                        'ul[class*="typeahead"] li',
+                        'ul[class*="dropdown"] li',
+                    ]:
+                        opts = target.query_selector_all(opt_sel)
+                        for opt in opts:
+                            if not opt.is_visible():
+                                continue
+                            txt = (opt.inner_text() or "").strip().lower()
+                            if not txt or "see all" in txt or "more result" in txt:
+                                continue
+                            target.evaluate("""el => {
+                                el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                                el.dispatchEvent(new MouseEvent('mouseup',   {bubbles:true}));
+                                el.click();
+                            }""", opt)
+                            _delay(0.4, 0.6)
+                            picked = True
+                            log.info(f"Typeahead picked: '{opt.inner_text().strip()[:50]}'")
+                            break
+                        if picked:
+                            break
+                    if not picked:
+                        # Fallback: ArrowDown + Enter
+                        if fid:
+                            target.evaluate("""(id) => {
+                                const el = document.getElementById(id);
+                                if (el) el.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true}));
+                            }""", fid)
+                        _delay(0.3, 0.5)
+                        target.keyboard.press("Enter")
+                except Exception:
+                    pass
+                if fid:
+                    target.evaluate("""(id) => {
+                        const el = document.getElementById(id);
+                        if (el) el.dispatchEvent(new Event('blur', {bubbles:true}));
+                    }""", fid)
             elif fid:
-                # Always use getElementById — handles any ID format safely
                 target.evaluate("""([id, val]) => {
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.focus();
-                    // Use nativeInputValueSetter for React-controlled inputs
-                    const nativeSetter = Object.getOwnPropertyDescriptor(
-                        window.HTMLInputElement.prototype, 'value'
-                    ) || Object.getOwnPropertyDescriptor(
-                        window.HTMLTextAreaElement.prototype, 'value'
-                    );
-                    if (nativeSetter && nativeSetter.set) {
-                        nativeSetter.set.call(el, val);
-                    } else {
-                        el.value = val;
-                    }
-                    el.dispatchEvent(new Event('input', {bubbles: true}));
-                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                    const ns = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+                            || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+                    if (ns && ns.set) { ns.set.call(el, val); }
+                    else { el.value = val; }
+                    el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
                 }""", [fid, str(answer)])
-                _delay(0.4, 0.8)
+                _delay(0.3, 0.6)
             else:
                 target.fill(sel, str(answer))
-            _delay(0.8, 1.2)
-
-            # LinkedIn typeahead: after typing, a dropdown may appear.
-            typeahead_selected = False
-            listbox_appeared = False
-            try:
-                target.wait_for_selector(
-                    '[role="listbox"], .basic-typeahead__triggered-content, '
-                    '[data-test-text-entity-list-form-select], '
-                    '[role="option"], ul[class*="typeahead"], ul[class*="dropdown"]',
-                    timeout=4000
-                )
-                listbox_appeared = True
-                for opt_sel in [
-                    '[role="listbox"] [role="option"]:first-child',
-                    '[role="listbox"] li:first-child',
-                    '.basic-typeahead__triggered-content .basic-typeahead__selectable:first-child',
-                    '[data-test-text-entity-list-form-select] li:first-child',
-                    '[data-test-autocomplete-result]:first-child',
-                    '[role="option"]:first-child',
-                    'ul[class*="typeahead"] li:first-child',
-                    'ul[class*="dropdown"] li:first-child',
-                ]:
-                    try:
-                        opt = target.query_selector(opt_sel)
-                        if opt and opt.is_visible():
-                            target.evaluate("""el => {
-                                el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
-                                el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
-                                el.click();
-                            }""", opt)
-                            _delay(0.4, 0.6)
-                            # Trigger blur on the input so Greenhouse validates the selection
-                            if fid:
-                                target.evaluate("""(id) => {
-                                    const el = document.getElementById(id);
-                                    if (el) el.dispatchEvent(new Event('blur', {bubbles:true}));
-                                }""", fid)
-                            typeahead_selected = True
-                            log.info(f"Typeahead JS-click: '{opt.inner_text().strip()[:60]}'")
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-            if listbox_appeared and not typeahead_selected:
-                try:
-                    el = target.query_selector(sel)
-                    if el:
-                        el.press("ArrowDown")
-                        _delay(0.3, 0.5)
-                        el.press("Enter")
-                        _delay(0.3, 0.5)
-                        log.info("Typeahead: used ArrowDown+Enter")
-                except Exception:
-                    pass
+                _delay(0.3, 0.6)
 
         elif ftype == "select":
             opts = field.get("options", [])
-            real_opts = [o for o in opts if o.lower() not in
-                         ("select an option", "select", "please select", "--select--", "")]
-            if real_opts:
+            real = [o for o in opts if o.lower() not in
+                    ("select an option", "select", "please select", "--select--", "")]
+            if real:
                 best = next(
-                    (o for o in real_opts if answer.lower() in o.lower()
-                     or o.lower() in answer.lower()),
-                    real_opts[0]
+                    (o for o in real if answer.lower() in o.lower() or o.lower() in answer.lower()),
+                    real[0]
                 )
                 target.select_option(sel, label=best)
             else:
@@ -362,25 +421,25 @@ def _fill_field(target, field: dict, answer: str) -> None:
 
         elif ftype == "checkbox":
             label_text = field.get("label", "").lower()
+            # "Follow company" is optional — don't force-check it
+            if "follow" in label_text:
+                return
             affirmative = answer.lower() in ("yes", "true", "agree", "consent",
                                               "accept", "i consent", "i agree", "1")
             consent_kw  = any(w in label_text for w in
                                ("consent", "agree", "accept", "privacy",
-                                "terms", "acknowledge", "declaration"))
+                                "terms", "acknowledge", "declaration", "certif"))
             if affirmative or consent_kw:
-                fid = field.get("id", "")
                 if fid:
-                    checked = target.evaluate("""(id) => {
+                    result = target.evaluate("""(id) => {
                         const el = document.getElementById(id);
-                        if (el && !el.checked) { el.click(); return true; }
-                        if (el && el.checked) return 'already';
-                        return false;
+                        if (!el) return false;
+                        if (!el.checked) { el.click(); return true; }
+                        return 'already';
                     }""", fid)
-                    if checked and checked != "already":
-                        log.info(f"Checkbox checked via JS getElementById: '{label_text[:50]}'")
+                    if result and result != "already":
+                        log.info(f"Checkbox checked: '{label_text[:50]}'")
                         _delay(0.2, 0.4)
-                    elif checked == "already":
-                        log.info(f"Checkbox already checked: '{label_text[:50]}'")
                 else:
                     el = target.query_selector(sel)
                     if el and not el.is_checked():
@@ -399,113 +458,75 @@ def _fill_field(target, field: dict, answer: str) -> None:
                     if answer.lower() in txt.lower():
                         r.click()
                         break
+
     except Exception as e:
         log.debug(f"Fill failed for '{field.get('label', sel)}': {e}")
 
 
+# ── Fill one modal step ───────────────────────────────────────────────────────
+
 def _fill_step(page: Page, profile: UserProfile,
                jd_summary: str, company: str, role: str, pdf_path: str,
                force_fill: bool = False) -> None:
-    """Extract and fill all fields visible in the current modal step.
+    """Extract and fill all fields in the current modal step."""
 
-    force_fill=True — include fields that already have a value (used when
-    stuck in a Review loop so we can overwrite stale/wrong data).
-    """
-
-    # ── Resume upload step ────────────────────────────────────────────────────
-    # LinkedIn shows a resume selection page with hidden file inputs.
-    # Detect it by checking for the document-upload section.
-    # Only treat as resume step if the heading says "Resume"
-    resume_section = None
+    # Resume upload detection
     heading = page.query_selector(
         '.jobs-easy-apply-modal h3, .jobs-easy-apply-modal h2, '
         '.jobs-easy-apply-content h3, .jobs-easy-apply-content h2'
     )
-    heading_text = heading.inner_text().strip().lower() if heading else ""
+    heading_text = (heading.inner_text().strip().lower() if heading else "")
     if "resume" in heading_text or "cv" in heading_text:
         resume_section = page.query_selector(
-            '.jobs-document-upload-redesign-card__container, '
-            '.jobs-document-upload'
+            '.jobs-document-upload-redesign-card__container, .jobs-document-upload'
         )
-    if resume_section and pdf_path:
-        try:
-            # Count resume cards before upload so we can identify the new one after
-            before_count = page.evaluate("""() =>
-                document.querySelectorAll('.jobs-document-upload-redesign-card__container').length
-            """)
-            log.info(f"LinkedIn Easy Apply: {before_count} resumes already on file")
+        if resume_section and pdf_path:
+            try:
+                file_inputs = page.evaluate("""() =>
+                    [...document.querySelectorAll('input[type="file"]')]
+                    .map((el, i) => ({index: i, id: el.id || ''}))
+                """)
+                if file_inputs:
+                    page.locator('input[type="file"]').nth(0).set_input_files(pdf_path)
+                    log.info(f"Resume uploaded: {pdf_path}")
+                    _delay(3.0, 4.0)
+                    page.evaluate("""() => {
+                        const radios = [...document.querySelectorAll(
+                            'input.jobs-document-upload-redesign-card__toggle[type="radio"]'
+                        )];
+                        if (radios.length) radios[0].click();
+                    }""")
+                    _delay(0.5, 1.0)
+            except Exception as e:
+                log.warning(f"Resume upload error: {e}")
+            return
 
-            # Upload the tailored PDF via the hidden file input
-            # The "Upload resume" label triggers this input — we set files directly
-            file_inputs = page.evaluate("""() => {
-                return [...document.querySelectorAll('input[type="file"]')]
-                    .map((el, i) => ({index: i, id: el.id || '', name: el.name || ''}));
-            }""")
-            if file_inputs:
-                file_el = page.locator('input[type="file"]').nth(0)
-                file_el.set_input_files(pdf_path)
-                log.info(f"LinkedIn Easy Apply: uploading tailored resume — {pdf_path}")
-                _delay(3.0, 4.0)  # wait for LinkedIn to process the upload
-
-                # After upload, select the newly added resume (first card = newest)
-                selected = page.evaluate("""() => {
-                    const radios = [...document.querySelectorAll(
-                        'input.jobs-document-upload-redesign-card__toggle[type="radio"]'
-                    )];
-                    if (radios.length === 0) return 'no_radios';
-                    // LinkedIn adds new resume at top — click first radio
-                    radios[0].click();
-                    const label = document.querySelector(
-                        'label.jobs-document-upload-redesign-card__toggle-label'
-                    );
-                    return 'selected: ' + (label ? label.innerText.trim() : 'first');
-                }""")
-                log.info(f"LinkedIn Easy Apply: resume selection — {selected}")
-                _delay(0.5, 1.0)
-        except Exception as e:
-            log.warning(f"LinkedIn Easy Apply: resume upload error — {e}")
-        # Resume step done — step loop will click Next
-        return
-
-    # Scroll the modal content area so that all fields are rendered/visible.
+    # Scroll modal to top so all fields are visible
     try:
         page.evaluate("""() => {
-            const scroller = document.querySelector(
-                '.artdeco-modal__content, '
-                + '.jobs-easy-apply-modal .artdeco-modal__content, '
-                + '.jobs-easy-apply-modal__content'
+            const s = document.querySelector(
+                '.artdeco-modal__content, .jobs-easy-apply-modal__content'
             );
-            if (scroller) scroller.scrollTop = 0;
+            if (s) s.scrollTop = 0;
         }""")
-        _delay(0.3, 0.5)
+        _delay(0.2, 0.4)
     except Exception:
         pass
 
-    # ── Extract from main frame + ATS iframes ────────────────────────────────
-    # Greenhouse / Lever / Workable etc. embed their form inside an iframe.
-    # We scan only:
-    #   frame_idx=0  → main page
-    #   frame_idx=N  → 3rd-party ATS iframes (non-LinkedIn domains)
-    # LinkedIn's own sub-frames (preload, recaptcha, etc.) are skipped.
-
-    _ATS_DOMAINS = (
-        "greenhouse.io", "lever.co", "workable.com", "ashbyhq.com",
-        "smartrecruiters.com", "jobvite.com", "icims.com", "taleo.net",
-        "breezy.hr", "recruitee.com",
-    )
+    # Scan main frame + ATS iframes only
     ats_frames = [
         f for f in page.frames
         if not f.is_detached()
         and f.url not in ('about:blank', '', page.url)
         and any(d in f.url for d in _ATS_DOMAINS)
     ]
-    frame_objects  = [page] + ats_frames
-    all_fields_raw: list[tuple] = []  # (frame_idx, field)
+    frame_objects = [page] + ats_frames
 
-    for idx, target_ctx in enumerate(frame_objects):
+    fields = []
+    for idx, ctx in enumerate(frame_objects):
         try:
-            f_fields = target_ctx.evaluate(_EXTRACT_FIELDS_JS)
-            # Strip reCAPTCHA / hidden bot-detection fields
+            f_fields = ctx.evaluate(_EXTRACT_FIELDS_JS)
+            # Remove reCAPTCHA/bot fields
             f_fields = [
                 f for f in f_fields
                 if not any(kw in (f.get('id','') + f.get('name','')).lower()
@@ -513,126 +534,115 @@ def _fill_step(page: Page, profile: UserProfile,
             ]
             for f in f_fields:
                 f['_fidx'] = idx
-            all_fields_raw.extend((idx, f) for f in f_fields)
+            fields.extend(f_fields)
             if idx > 0 and f_fields:
-                log.info(f"ATS iframe[{idx}] ({str(target_ctx.url)[:70]}): "
-                         f"{len(f_fields)} fields")
+                log.info(f"ATS iframe[{idx}] ({ctx.url[:60]}): {len(f_fields)} fields")
         except Exception as ex:
             log.debug(f"Frame[{idx}] extraction failed: {ex}")
-
-    fields = [f for _, f in all_fields_raw]
-
-    # Log every extracted field so we can see what's detected
-    log.info(f"All extracted fields ({len(fields)}): " +
-             str([(f.get('label') or f.get('id'), f.get('type'),
-                   f.get('inputmode'), f.get('currentValue', ''),
-                   f.get('_fidx', 0)) for f in fields]))
 
     if not fields:
         return
 
-    # Include fields that need filling:
-    # - text/textarea with empty currentValue
-    # - select with placeholder value
-    # - numeric inputs with empty value OR value "0" (unfilled default)
-    # - radio/checkbox (always verify)
-    # - any field with a visible validation error
-    # - if force_fill: include everything (used when stuck in Review loop)
+    log.info(f"Extracted {len(fields)} fields: " +
+             str([(f.get('label') or f.get('id'), f.get('type')) for f in fields]))
+
+    # Decide which fields need filling
     PLACEHOLDER_VALS = {"", "select an option", "select", "please select", "--select--"}
 
-    # Collect IDs of fields with visible validation errors
-    error_field_ids = set(page.evaluate("""() => {
-        const errorEls = document.querySelectorAll(
-            '[class*="artdeco-inline-feedback--error"], [class*="form-element__error"], '
-            + '[id$="-error"]:not(:empty)'
-        );
+    error_ids = set(page.evaluate("""() => {
         const ids = new Set();
-        errorEls.forEach(el => {
-            const fieldId = el.id ? el.id.replace(/-error$/, '') : '';
-            if (fieldId) ids.add(fieldId);
-            const container = el.closest(
-                '[data-test-single-line-text-form-component], '
-                + '[data-test-form-element], .artdeco-text-input'
-            );
-            if (container) {
-                const inp = container.querySelector('input, textarea, select');
-                if (inp && inp.id) ids.add(inp.id);
-            }
+        document.querySelectorAll('[id$="-error"]:not(:empty)').forEach(e => {
+            const fid = e.id.replace(/-error$/, '');
+            if (fid) ids.add(fid);
+        });
+        document.querySelectorAll('[class*="artdeco-inline-feedback--error"]').forEach(e => {
+            const c = e.closest('[data-test-single-line-text-form-component],[data-test-numeric-text-form-component]');
+            if (c) { const inp = c.querySelector('input,textarea,select'); if (inp && inp.id) ids.add(inp.id); }
         });
         return [...ids];
     }""") or [])
 
-    def _needs_fill(f: dict) -> bool:
+    def needs_fill(f: dict) -> bool:
         if f.get("type") == "file":
             return False
         if force_fill:
             return True
-        cv = f.get("currentValue", "").lower()
+        cv    = f.get("currentValue", "").lower()
         ftype = f.get("type", "text")
-        inputmode = f.get("inputmode", "")
-        # Always include radio/checkbox (must verify selection)
+        im    = f.get("inputmode", "")
+        label = f.get("label", "").lower()
+        # Skip optional "follow company" checkbox
+        if ftype == "checkbox" and "follow" in label:
+            return False
         if ftype in ("radio", "checkbox"):
             return True
-        # Include if error
-        if f.get("id", "") in error_field_ids:
+        if f.get("id", "") in error_ids:
             return True
-        # Include if empty/placeholder
         if cv in PLACEHOLDER_VALS:
             return True
-        # Numeric input with value "0" is considered unfilled
-        if inputmode in ("numeric", "decimal") and cv in ("0", ""):
+        if im in ("numeric", "decimal") and cv in ("0", ""):
             return True
         return False
 
-    other_fields = [f for f in fields if _needs_fill(f)]
+    to_fill = [f for f in fields if needs_fill(f)]
+    if not to_fill:
+        return
 
-    if other_fields:
-        log.info(f"Fields to fill ({len(other_fields)}): " +
-                 str([f.get('label') or f.get('name') or f.get('id') for f in other_fields]))
-        answers = _gemini_answers(other_fields, profile, jd_summary, company, role)
+    log.info(f"Fields to fill ({len(to_fill)}): " +
+             str([f.get('label') or f.get('id') for f in to_fill]))
+
+    # 1. Rules-based fill (no Gemini tokens)
+    needs_gemini = []
+    for field in to_fill:
+        ans = _rules_based_answer(field, profile)
+        if ans is not None:
+            fidx   = field.get('_fidx', 0)
+            target = frame_objects[fidx] if fidx < len(frame_objects) else page
+            _fill_field(target, field, str(ans))
+            _delay(0.1, 0.2)
+        else:
+            needs_gemini.append(field)
+
+    # 2. Gemini for unknown fields only
+    if needs_gemini:
+        log.info(f"Asking Gemini for {len(needs_gemini)} unknown fields")
+        answers = _gemini_answers(needs_gemini, profile, jd_summary, company, role)
         log.info(f"Gemini answers: {answers}")
 
-        # Pre-build a normalised lookup so we can match even when Gemini
-        # strips colons/hyphens from React IDs (e.g. ':r2:' → 'r2').
-        def _normalise(s: str) -> str:
+        def _norm(s: str) -> str:
             return re.sub(r'[^a-z0-9]', '', s.lower())
 
-        norm_answers = {_normalise(k): v for k, v in answers.items()}
+        norm_ans = {_norm(k): v for k, v in answers.items()}
 
-        for field in other_fields:
-            key        = field.get("id") or field.get("name") or ""
-            label_low  = field.get("label", "").lower()
-            ftype      = field.get("type", "text")
+        for field in needs_gemini:
+            key       = field.get("id") or field.get("name") or ""
+            label_low = field.get("label", "").lower()
+            ftype     = field.get("type", "text")
 
-            # 1. Exact key match
-            ans = answers.get(key)
+            ans = (answers.get(key)
+                   or (norm_ans.get(_norm(key)) if key else None))
 
-            # 2. Normalised key match (handles ':r2:' == 'r2')
-            if not ans and key:
-                ans = norm_answers.get(_normalise(key))
-
-            # 3. Label-based match (Gemini sometimes uses the label as key)
+            # Label-based match fallback
             if not ans and label_low:
                 for ak, av in answers.items():
                     if label_low in ak.lower() or ak.lower() in label_low:
                         ans = av
                         break
 
-            # 4. Hardcoded city/location fallback — never leave this blank
-            if not ans and ftype in ("text", "search") and any(
-                kw in label_low for kw in ("city", "location", "search", "where")
+            # Numeric fallback: experience field
+            if not ans and ftype in ("text", "number") and any(
+                kw in label_low for kw in ("experience", "year")
             ):
-                ans = "New Delhi"
+                ans = str(profile.years_of_experience)
 
             if ans and str(ans) not in ("RESUME_PDF", ""):
-                # Use the frame context that owns this field
-                fidx   = field.get("_fidx", 0)
+                fidx   = field.get('_fidx', 0)
                 target = frame_objects[fidx] if fidx < len(frame_objects) else page
                 _fill_field(target, field, str(ans))
-                _delay(0.1, 0.3)
+                _delay(0.1, 0.2)
 
 
-# ── Main applicator ──────────────────────────────────────────────────────────
+# ── Main applicator ───────────────────────────────────────────────────────────
 
 def apply_linkedin_easy_apply(
     apply_url: str,
@@ -643,15 +653,7 @@ def apply_linkedin_easy_apply(
     profile: UserProfile,
     dry_run: bool = False,
 ) -> bool:
-    """
-    Navigate to the LinkedIn Easy Apply URL, complete all modal steps,
-    and submit the application.
-
-    dry_run=True fills everything but stops before clicking "Submit application"
-    (useful for testing without actually applying).
-
-    Returns True on success.
-    """
+    """Complete LinkedIn Easy Apply and submit (or stop before Submit in dry_run mode)."""
     session_file = os.path.abspath(_SESSION_FILE)
     if not os.path.exists(session_file):
         log.error("LinkedIn session not found — run setup_sessions.py first")
@@ -675,14 +677,11 @@ def apply_linkedin_easy_apply(
         log.info(f"LinkedIn Easy Apply: '{role}' @ {company}")
 
         try:
-            # Navigate to the job/apply URL
             page.goto(apply_url, timeout=30000)
             _delay(2.0, 3.0)
 
-            # If the URL doesn't auto-open the modal, click Easy Apply button
-            modal_present = page.query_selector(
-                ".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal']")
-            if not modal_present:
+            # Open the Easy Apply modal
+            if not page.query_selector(".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal']"):
                 easy_btn = None
                 for sel in [
                     "button[aria-label*='Easy Apply']",
@@ -700,12 +699,10 @@ def apply_linkedin_easy_apply(
                 _delay(1.5, 2.5)
 
             # ── Step loop ────────────────────────────────────────────────────
-            # review_streak tracks consecutive Review clicks without progress.
-            # After 2 straight Reviews we switch to force_fill mode.
-            review_streak = 0
+            review_streak     = 0
+            prev_field_hashes: list = []  # track last N field fingerprints to detect true stuck
 
-            for step in range(25):
-                # Wait for modal to be visible
+            for step in range(50):
                 try:
                     page.wait_for_selector(
                         ".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal'], "
@@ -713,38 +710,43 @@ def apply_linkedin_easy_apply(
                         timeout=8000
                     )
                 except PWTimeout:
-                    # Modal closed — check if it's because application was submitted
+                    # Modal closed — check for success
                     try:
                         page.wait_for_selector(
                             "[data-test-modal-id='post-apply-modal'], "
                             ".jobs-post-apply-modal, "
-                            "[aria-label*='application was sent'], "
                             "h2:has-text('Application submitted'), "
                             "h2:has-text('Your application was sent')",
                             timeout=3000
                         )
-                        log.info(f"✅ Applied (Easy Apply): '{role}' @ {company}")
+                        log.info(f"✅ Applied: '{role}' @ {company}")
                         return True
                     except PWTimeout:
                         pass
-                    log.warning(f"Easy Apply modal disappeared at step {step}")
+                    log.warning(f"Modal disappeared at step {step}")
                     break
 
-                _delay(1.0, 1.5)
+                _delay(0.8, 1.2)
 
-                # Force-fill when we've been clicking Review without progress.
-                force_fill = review_streak >= 2
+                # Detect truly stuck: same field fingerprint 4 steps in a row
+                fingerprint = frozenset(
+                    f.get("id","") or f.get("name","")
+                    for _, f in [(0, f) for f in (
+                        page.evaluate(_EXTRACT_FIELDS_JS) if True else []
+                    )]
+                ) if False else None  # computed below after fill
+
+                force_fill = review_streak >= 3
+
                 if force_fill:
                     log.warning(f"Step {step}: stuck on Review (streak={review_streak}), forcing full fill")
 
-                # Fill all fields in current step
                 _fill_step(page, profile, jd_summary, company, role, pdf_path,
                            force_fill=force_fill)
-                _delay(0.5, 1.0)
+                _delay(0.5, 0.8)
 
-                # ── Button priority: Submit > Review > Next ───────────────
-                log.info(f"Step {step}: looking for navigation button")
-                # Check Submit
+                # Navigation buttons
+                # Submit
                 submit_btn = None
                 for sel in [
                     "button[aria-label='Submit application']",
@@ -756,16 +758,15 @@ def apply_linkedin_easy_apply(
                         break
 
                 if submit_btn:
-                    log.info(f"Step {step}: found Submit button")
                     if dry_run:
                         log.info(f"DRY RUN — would submit: '{role}' @ {company}")
                         return True
-                    submit_btn.click()
+                    page.evaluate("el => el.click()", submit_btn)
                     _delay(2.0, 3.0)
-                    log.info(f"✅ Applied (Easy Apply): '{role}' @ {company}")
+                    log.info(f"✅ Applied: '{role}' @ {company}")
                     return True
 
-                # Check Review
+                # Review
                 review_btn = None
                 for sel in [
                     "button[aria-label='Review your application']",
@@ -779,18 +780,17 @@ def apply_linkedin_easy_apply(
 
                 if review_btn:
                     review_streak += 1
+                    # Truly stuck: give up after 8 review clicks (likely unfillable required field)
+                    if review_streak > 8:
+                        log.warning(f"Step {step}: exceeded review limit, giving up")
+                        break
                     log.info(f"Step {step}: clicking Review (streak={review_streak})")
-                    # Use JS click to bypass any overlay interception
                     page.evaluate("el => el.click()", review_btn)
                     _delay(1.5, 2.0)
 
-                    # After clicking Review, check for validation errors.
-                    # LinkedIn renders error messages in elements whose id = fieldId + "-error".
-                    # Also look inside artdeco-inline-feedback--error containers.
+                    # Fix error fields
                     error_fields = page.evaluate("""() => {
-                        const results = [];
-                        const seen = new Set();
-                        // Pattern A: [id$="-error"] elements
+                        const results = []; const seen = new Set();
                         document.querySelectorAll('[id$="-error"]').forEach(errEl => {
                             const errTxt = errEl.innerText.trim();
                             if (!errTxt) return;
@@ -799,78 +799,48 @@ def apply_linkedin_easy_apply(
                             const inp = document.getElementById(inputId);
                             if (!inp) return;
                             seen.add(inputId);
-                            let labelTxt = '';
+                            let lbl = '';
                             document.querySelectorAll('label[for]').forEach(l => {
-                                if (l.htmlFor === inputId)
-                                    labelTxt = l.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
+                                if (l.htmlFor === inputId) lbl = l.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
                             });
-                            if (!labelTxt) {
+                            if (!lbl) {
                                 const lbId = inp.getAttribute('aria-labelledby');
-                                if (lbId) {
-                                    const lbEl = document.getElementById(lbId);
-                                    if (lbEl) labelTxt = lbEl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim();
-                                }
+                                if (lbId) { const lbEl = document.getElementById(lbId); if (lbEl) lbl = lbEl.innerText.trim(); }
                             }
-                            results.push({
-                                id: inputId,
-                                label: labelTxt || inputId,
-                                type: inp.type || 'text',
-                                inputmode: inp.getAttribute('inputmode') || '',
-                                currentValue: inp.value || '',
-                                error: errTxt,
-                                selector: null,
-                                name: inp.name || '',
-                            });
+                            results.push({ id: inputId, label: lbl || inputId, type: inp.type || 'text',
+                                           inputmode: inp.getAttribute('inputmode') || '',
+                                           currentValue: inp.value || '', error: errTxt, selector: null, name: inp.name || '' });
                         });
-                        // Pattern B: artdeco-inline-feedback--error without the id convention
                         document.querySelectorAll('[class*="artdeco-inline-feedback--error"]').forEach(errEl => {
-                            const errTxt = errEl.innerText.trim();
-                            if (!errTxt) return;
-                            const container = errEl.closest(
-                                '[data-test-single-line-text-form-component], '
-                                + '[data-test-numeric-text-form-component], '
-                                + '[data-test-form-element]'
-                            );
-                            if (!container) return;
-                            const inp = container.querySelector('input, textarea, select');
+                            const errTxt = errEl.innerText.trim(); if (!errTxt) return;
+                            const c = errEl.closest('[data-test-single-line-text-form-component],[data-test-numeric-text-form-component]');
+                            if (!c) return;
+                            const inp = c.querySelector('input,textarea,select');
                             if (!inp || !inp.id || seen.has(inp.id)) return;
                             seen.add(inp.id);
-                            const lbl = container.querySelector('label, [class*="label"]');
-                            const labelTxt = lbl ? lbl.innerText.trim().replace(/\\s*\\*\\s*$/, '').trim() : '';
-                            results.push({
-                                id: inp.id,
-                                label: labelTxt || inp.id,
-                                type: inp.type || 'text',
-                                inputmode: inp.getAttribute('inputmode') || '',
-                                currentValue: inp.value || '',
-                                error: errTxt,
-                                selector: null,
-                                name: inp.name || '',
-                            });
+                            const lbl = c.querySelector('label,[class*="label"]');
+                            results.push({ id: inp.id, label: lbl ? lbl.innerText.trim() : inp.id,
+                                           type: inp.type || 'text', inputmode: inp.getAttribute('inputmode') || '',
+                                           currentValue: inp.value || '', error: errTxt, selector: null, name: inp.name || '' });
                         });
                         return results;
                     }""")
+
                     if error_fields:
-                        log.info(f"Step {step}: {len(error_fields)} error fields — "
-                                 f"{[f['label'][:40] for f in error_fields]}")
-                        answers = _gemini_answers(error_fields, profile, jd_summary, company, role)
-                        log.info(f"Gemini answers for errors: {answers}")
+                        log.info(f"Error fields: {[f['label'][:40] for f in error_fields]}")
                         for field in error_fields:
-                            key = field.get("id") or field.get("name")
-                            ans = (answers.get(key)
-                                   or answers.get(field.get("label", "")))
+                            ans = _rules_based_answer(field, profile)
                             if not ans:
                                 lbl = field.get("label", "").lower()
                                 im  = field.get("inputmode", "")
                                 if "year" in lbl or "experience" in lbl or im in ("numeric", "decimal"):
                                     ans = str(profile.years_of_experience)
                             if ans:
-                                _fill_field(page, field, str(ans))  # error fields are always main frame
-                                _delay(0.3, 0.5)
-                        _delay(0.5, 1.0)
+                                _fill_field(page, field, str(ans))
+                                _delay(0.2, 0.4)
                     continue
 
-                # Check Next / Continue
+                # Next
                 next_btn = None
                 for sel in [
                     "button[aria-label='Continue to next step']",
@@ -883,41 +853,31 @@ def apply_linkedin_easy_apply(
                         break
 
                 if next_btn:
-                    review_streak = 0   # made progress
+                    review_streak = 0
                     log.info(f"Step {step}: clicking Next")
-                    # JS click to bypass any overlay
                     page.evaluate("el => el.click()", next_btn)
-                    _delay(1.0, 2.0)
+                    _delay(1.0, 1.5)
                     continue
 
-                # Fallback: any primary button in modal
+                # Fallback primary button
                 fallback = page.query_selector(
                     ".jobs-easy-apply-modal button.artdeco-button--primary, "
                     ".jobs-easy-apply-content button.artdeco-button--primary"
                 )
                 if fallback and fallback.is_visible():
                     btn_text = fallback.inner_text().strip().lower()
-                    log.info(f"Step {step}: fallback primary button '{btn_text}'")
+                    log.info(f"Step {step}: fallback '{btn_text}'")
                     if dry_run and "submit" in btn_text:
                         log.info(f"DRY RUN — would submit: '{role}' @ {company}")
                         return True
                     page.evaluate("el => el.click()", fallback)
-                    _delay(1.0, 2.0)
+                    _delay(1.0, 1.5)
                     if "submit" in btn_text:
-                        log.info(f"✅ Applied (Easy Apply): '{role}' @ {company}")
+                        log.info(f"✅ Applied: '{role}' @ {company}")
                         return True
                     continue
 
-                log.warning(f"Step {step}: no navigation button found — checking for errors")
-                try:
-                    errors = page.eval_on_selector_all(
-                        ".artdeco-inline-feedback--error, [class*='error']",
-                        "els => els.map(e => e.innerText.trim()).filter(Boolean).slice(0,5)"
-                    )
-                    if errors:
-                        log.warning(f"Step {step}: visible errors — {errors}")
-                except Exception:
-                    pass
+                log.warning(f"Step {step}: no navigation button found")
                 break
 
             log.warning(f"Easy Apply: did not reach Submit for '{role}' @ {company}")
