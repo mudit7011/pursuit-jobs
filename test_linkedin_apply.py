@@ -8,9 +8,11 @@ Usage:
 """
 import os
 import glob
+import time
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+from playwright.sync_api import sync_playwright
 from src.profile import load_profile
 from src.applicators.linkedin_easy_apply import apply_linkedin_easy_apply
 from src.resume_tailor import save_pdf
@@ -18,7 +20,7 @@ from src.resume_tailor import save_pdf
 TEST_URL   = os.getenv("TEST_URL", "")
 COMPANY    = os.getenv("TEST_COMPANY", "")
 ROLE       = os.getenv("TEST_ROLE", "Software Engineer")
-JD_SUMMARY = "Software Engineer role requiring Python/Node.js backend development skills."
+JD_SUMMARY = ""
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
@@ -27,17 +29,57 @@ if not os.path.exists(PDF_PATH):
     pdfs = glob.glob("output/*.pdf")
     PDF_PATH = pdfs[0] if pdfs else ""
 
+
+def _scrape_job(url: str) -> dict:
+    """Open LinkedIn job page, return {company, role, jd_text}."""
+    result = {"company": "", "role": "", "jd": ""}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            ctx = browser.new_context(
+                storage_state="sessions/linkedin.json",
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 900}
+            )
+            page = ctx.new_page()
+            page.goto(url, timeout=30000)
+            time.sleep(5)
+
+            # Parse title: "Role | Company | LinkedIn"
+            title = page.title()
+            parts = [p.strip() for p in title.split("|")]
+            role    = parts[0] if len(parts) > 0 else ""
+            company = parts[1] if len(parts) > 1 else ""
+
+            # Extract JD from page body text using section headers
+            full_text = page.inner_text("body")
+            jd = ""
+            for marker in ("About the job", "Job description", "About this job",
+                           "About the role", "Role description", "Responsibilities"):
+                idx = full_text.find(marker)
+                if idx != -1:
+                    jd = full_text[idx:idx + 3000].strip()
+                    break
+
+            browser.close()
+            return {"company": company, "role": role, "jd": jd}
+    except Exception as e:
+        logging.warning(f"JD scrape failed: {e}")
+        return result
+
+
+# ── Auto-find job if no URL given ────────────────────────────────────────────
 if not TEST_URL:
     print("\nNo TEST_URL set. Finding a LinkedIn Easy Apply job based on your profile...\n")
-    import time
-    from playwright.sync_api import sync_playwright
 
     _profile_for_search = load_profile()
     _job_cfg   = _profile_for_search.raw.get("job_search", {})
     _keywords  = _job_cfg.get("keywords", ["Backend Developer", "Python Developer"])
     _blacklist = [k.lower() for k in _job_cfg.get("blacklist_keywords", [])]
 
-    # Try each keyword until we find a fresh Easy Apply job
     found = []
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -78,7 +120,6 @@ if not TEST_URL:
                 return jobs.filter(j => { if (seen.has(j.url)) return false; seen.add(j.url); return true; });
             }""")
 
-            # Filter out blacklisted titles
             for j in jobs:
                 t = j["title"].lower()
                 if any(bl in t for bl in _blacklist):
@@ -100,16 +141,34 @@ if not TEST_URL:
         print(f"URL:    {TEST_URL}\n")
     else:
         print("Could not auto-find a LinkedIn Easy Apply job.")
-        print("Set TEST_URL manually:")
-        print('  TEST_URL="https://www.linkedin.com/jobs/view/..." python test_linkedin_apply.py')
+        print('Set TEST_URL manually: TEST_URL="https://www.linkedin.com/jobs/view/..." python test_linkedin_apply.py')
         exit(1)
+
+# ── Scrape actual JD from the job page ───────────────────────────────────────
+print(f"Fetching job description from LinkedIn...")
+jd_data = _scrape_job(TEST_URL)
+
+if not COMPANY and jd_data.get("company"):
+    COMPANY = jd_data["company"]
+if not ROLE or ROLE == "Software Engineer":
+    ROLE = jd_data.get("role") or ROLE
+if not COMPANY:
+    COMPANY = "Unknown Company"
+
+JD_SUMMARY = jd_data.get("jd", "")
+if JD_SUMMARY:
+    print(f"JD fetched: {len(JD_SUMMARY)} chars")
+    print(f"Preview: {JD_SUMMARY[:200]}...\n")
+else:
+    JD_SUMMARY = f"{ROLE} role. Skills: Next.js, React, Node.js, TypeScript, JavaScript."
+    print(f"JD fetch failed — using fallback summary\n")
 
 profile = load_profile()
 
-# Generate JD-tailored resume before applying
-safe_name = f"{COMPANY}_{ROLE}".replace(" ", "_").replace("/", "-")
+# ── Generate JD-tailored resume ───────────────────────────────────────────────
+safe_name = f"{COMPANY}_{ROLE}".replace(" ", "_").replace("/", "-")[:60]
 tailored_pdf = f"output/LinkedIn_{safe_name}.pdf"
-print(f"Generating tailored resume for {ROLE} @ {COMPANY}...")
+print(f"Tailoring resume for {ROLE} @ {COMPANY}...")
 try:
     save_pdf(COMPANY, ROLE, JD_SUMMARY, tailored_pdf)
     PDF_PATH = tailored_pdf
@@ -119,10 +178,10 @@ except Exception as e:
 
 print(f"\n{'='*55}")
 print(f"  LinkedIn Easy Apply Test")
-print(f"  Job  : {ROLE} @ {COMPANY}")
-print(f"  URL  : {TEST_URL}")
+print(f"  Job   : {ROLE} @ {COMPANY}")
+print(f"  URL   : {TEST_URL}")
 print(f"  Resume: {PDF_PATH}")
-print(f"  Mode : {'DRY RUN (no Submit)' if DRY_RUN else '⚠️  LIVE — will actually apply!'}")
+print(f"  Mode  : {'DRY RUN (no Submit)' if DRY_RUN else '⚠️  LIVE — will actually apply!'}")
 print(f"{'='*55}\n")
 
 result = apply_linkedin_easy_apply(
