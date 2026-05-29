@@ -221,12 +221,25 @@ def _fill_field(target, field: dict, answer: str) -> None:
                      "date", "search", "password"):
             # If label is "Search" or city/location related, always use the city value
             label_lower = field.get("label", "").lower()
-            if label_lower in ("search", "") or any(
+            is_city_field = label_lower in ("search", "") or any(
                 kw in label_lower for kw in ("city", "location", "where")
-            ):
-                if ftype in ("text", "search"):
-                    answer = "New Delhi, Delhi, India"
-            if fid:
+            )
+            if is_city_field and ftype in ("text", "search"):
+                answer = "New Delhi"
+
+            # City/location typeahead fields need real keyboard events (not JS injection)
+            # because Greenhouse/React typeaheads only respond to actual keystrokes.
+            if is_city_field and ftype in ("text", "search"):
+                try:
+                    loc_sel = f'#{fid}' if fid else sel
+                    target.click(loc_sel)
+                    _delay(0.2, 0.4)
+                    target.fill(loc_sel, "")
+                    target.type(loc_sel, "New Delhi", delay=60)
+                    _delay(1.0, 1.5)
+                except Exception as e:
+                    log.debug(f"City field type() failed: {e}")
+            elif fid:
                 # Always use getElementById — handles any ID format safely
                 target.evaluate("""([id, val]) => {
                     const el = document.getElementById(id);
@@ -247,7 +260,7 @@ def _fill_field(target, field: dict, answer: str) -> None:
                     el.dispatchEvent(new Event('change', {bubbles: true}));
                 }""", [fid, str(answer)])
                 _delay(0.4, 0.8)
-            elif sel:
+            else:
                 target.fill(sel, str(answer))
             _delay(0.8, 1.2)
 
@@ -257,8 +270,9 @@ def _fill_field(target, field: dict, answer: str) -> None:
             try:
                 target.wait_for_selector(
                     '[role="listbox"], .basic-typeahead__triggered-content, '
-                    '[data-test-text-entity-list-form-select]',
-                    timeout=2500
+                    '[data-test-text-entity-list-form-select], '
+                    '[role="option"], ul[class*="typeahead"], ul[class*="dropdown"]',
+                    timeout=4000
                 )
                 listbox_appeared = True
                 for opt_sel in [
@@ -267,6 +281,9 @@ def _fill_field(target, field: dict, answer: str) -> None:
                     '.basic-typeahead__triggered-content .basic-typeahead__selectable:first-child',
                     '[data-test-text-entity-list-form-select] li:first-child',
                     '[data-test-autocomplete-result]:first-child',
+                    '[role="option"]:first-child',
+                    'ul[class*="typeahead"] li:first-child',
+                    'ul[class*="dropdown"] li:first-child',
                 ]:
                     try:
                         opt = target.query_selector(opt_sel)
@@ -428,26 +445,41 @@ def _fill_step(page: Page, profile: UserProfile,
     except Exception:
         pass
 
-    # ── Extract from main frame + all iframes ────────────────────────────────
-    # Greenhouse-powered LinkedIn Easy Apply embeds form fields in an iframe.
-    # We scan every frame and tag each field with a frame index so _fill_field
-    # can use the correct execution context.
-    #
-    # frame_idx=0  → main page (use page.evaluate / page.fill)
-    # frame_idx=N  → page.frames[N]
+    # ── Extract from main frame + ATS iframes ────────────────────────────────
+    # Greenhouse / Lever / Workable etc. embed their form inside an iframe.
+    # We scan only:
+    #   frame_idx=0  → main page
+    #   frame_idx=N  → 3rd-party ATS iframes (non-LinkedIn domains)
+    # LinkedIn's own sub-frames (preload, recaptcha, etc.) are skipped.
 
-    frame_objects  = [page] + [f for f in page.frames if not f.is_detached()
-                                and f.url not in ('about:blank', '', page.url)]
+    _ATS_DOMAINS = (
+        "greenhouse.io", "lever.co", "workable.com", "ashbyhq.com",
+        "smartrecruiters.com", "jobvite.com", "icims.com", "taleo.net",
+        "breezy.hr", "recruitee.com",
+    )
+    ats_frames = [
+        f for f in page.frames
+        if not f.is_detached()
+        and f.url not in ('about:blank', '', page.url)
+        and any(d in f.url for d in _ATS_DOMAINS)
+    ]
+    frame_objects  = [page] + ats_frames
     all_fields_raw: list[tuple] = []  # (frame_idx, field)
 
     for idx, target_ctx in enumerate(frame_objects):
         try:
             f_fields = target_ctx.evaluate(_EXTRACT_FIELDS_JS)
+            # Strip reCAPTCHA / hidden bot-detection fields
+            f_fields = [
+                f for f in f_fields
+                if not any(kw in (f.get('id','') + f.get('name','')).lower()
+                           for kw in ('recaptcha', 'g-recaptcha', 'captcha', 'bot'))
+            ]
             for f in f_fields:
                 f['_fidx'] = idx
             all_fields_raw.extend((idx, f) for f in f_fields)
             if idx > 0 and f_fields:
-                log.info(f"iframe[{idx}] ({str(target_ctx.url)[:70]}): "
+                log.info(f"ATS iframe[{idx}] ({str(target_ctx.url)[:70]}): "
                          f"{len(f_fields)} fields")
         except Exception as ex:
             log.debug(f"Frame[{idx}] extraction failed: {ex}")
