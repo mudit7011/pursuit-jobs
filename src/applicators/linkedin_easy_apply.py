@@ -23,7 +23,7 @@ _SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/linkedin
 _MOCK_GEMINI  = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 
 genai.configure(api_key=GEMINI_API_KEY)
-_model = genai.GenerativeModel("gemini-2.0-flash")
+_model = genai.GenerativeModel("gemini-2.5-flash")
 
 # ATS domains whose iframes we scan (LinkedIn-native iframes are excluded)
 _ATS_DOMAINS = (
@@ -119,6 +119,11 @@ def _rules_based_answer(field: dict, profile: UserProfile) -> str | None:
         return str(profile.cgpa)
     if any(kw in label for kw in ("graduation year", "year of graduation", "passed out", "batch")):
         return str(profile.graduation_year)
+
+    # Language proficiency fields — default English
+    if any(kw in label for kw in ("select language", "language proficiency", "language")):
+        if ftype == "select":
+            return "English"
 
     # "Follow company" — always optional, skip silently
     if "follow" in label and ftype == "checkbox":
