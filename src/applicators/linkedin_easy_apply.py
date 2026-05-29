@@ -309,6 +309,40 @@ _EXTRACT_FIELDS_JS = """() => {
         if (f) fields.push(f);
     });
 
+    // ── Strategy 5: Proximity-based label scan ────────────────────────────
+    // Catches third-party ATS fields (PyjamaHR, Greenhouse) where the label
+    // has no "for" attribute and the input has no aria-label/placeholder.
+    // Walk up the DOM from each unfound select/input to find adjacent text.
+    modalRoot.querySelectorAll('select, input[type="text"], input[type="number"]').forEach(el => {
+        const id  = el.id || '';
+        const key = id || el.name;
+        if (key && seen.has(key)) return;
+        const type = el.tagName.toLowerCase() === 'select' ? 'select'
+                   : (el.getAttribute('type') || 'text').toLowerCase();
+        if (['hidden','submit','button','file'].includes(type)) return;
+
+        let labelTxt = '';
+        let node = el.parentElement;
+        for (let depth = 0; depth < 5 && node && !labelTxt; depth++) {
+            for (const child of node.children) {
+                if (child === el || child.contains(el)) continue;
+                const tag = child.tagName.toLowerCase();
+                if (['label','span','p','div','h3','h4','legend','strong'].includes(tag)) {
+                    const txt = (child.innerText || '').trim().replace(/\\s*\\*\\s*$/, '').trim();
+                    if (txt && txt.length > 3 && txt.length < 120 && !txt.includes('\\n')) {
+                        labelTxt = txt;
+                        break;
+                    }
+                }
+            }
+            node = node.parentElement;
+        }
+
+        if (!labelTxt) return;
+        const f = makeField(el, labelTxt);
+        if (f) fields.push(f);
+    });
+
     return fields;
 }"""
 
