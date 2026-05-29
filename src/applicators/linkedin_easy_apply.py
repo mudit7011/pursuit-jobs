@@ -29,7 +29,7 @@ _model = genai.GenerativeModel("gemini-2.0-flash")
 _ATS_DOMAINS = (
     "greenhouse.io", "lever.co", "workable.com", "ashbyhq.com",
     "smartrecruiters.com", "jobvite.com", "icims.com", "taleo.net",
-    "breezy.hr", "recruitee.com",
+    "breezy.hr", "recruitee.com", "pyjamahr.com", "pyjamaHR.com",
 )
 
 
@@ -80,9 +80,13 @@ def _rules_based_answer(field: dict, profile: UserProfile) -> str | None:
     # Experience (total / overall — not skill-specific)
     if any(kw in label for kw in (
         "years of experience", "total experience", "overall experience",
-        "how many years", "total years", "work experience"
+        "how many years", "total years", "work experience", "years of professional"
     )) and "specific" not in label and "technology" not in label and "tool" not in label:
         return str(profile.years_of_experience)
+
+    # Months of experience (additional months beyond full years)
+    if any(kw in label for kw in ("additional months", "months of experience", "months experience", "total months")):
+        return "0"
 
     # Notice period / availability
     if any(kw in label for kw in ("notice period", "notice", "availability", "joining", "when can you join")):
@@ -411,10 +415,39 @@ def _fill_field(target, field: dict, answer: str) -> None:
             real = [o for o in opts if o.lower() not in
                     ("select an option", "select", "please select", "--select--", "")]
             if real:
-                best = next(
-                    (o for o in real if answer.lower() in o.lower() or o.lower() in answer.lower()),
-                    real[0]
-                )
+                # 1. Exact match
+                best = next((o for o in real if answer.lower() == o.lower()), None)
+
+                # 2. Numeric range match — e.g. answer="2" → "2-3 years" or "1-2 years"
+                if best is None:
+                    try:
+                        n = float(answer)
+                        # Prefer option whose range contains n (e.g. "1-2" contains 2)
+                        for o in real:
+                            nums = re.findall(r'\d+(?:\.\d+)?', o)
+                            if len(nums) >= 2 and float(nums[0]) <= n <= float(nums[1]):
+                                best = o
+                                break
+                        # Fallback: largest lower bound that's <= n
+                        if best is None:
+                            candidates = []
+                            for o in real:
+                                nums = re.findall(r'\d+(?:\.\d+)?', o)
+                                if nums and float(nums[0]) <= n:
+                                    candidates.append((float(nums[0]), o))
+                            if candidates:
+                                best = max(candidates, key=lambda x: x[0])[1]
+                    except (ValueError, TypeError):
+                        pass
+
+                # 3. Substring match
+                if best is None:
+                    best = next(
+                        (o for o in real if answer.lower() in o.lower() or o.lower() in answer.lower()),
+                        real[0]
+                    )
+
+                log.info(f"Select '{field.get('label','')[:40]}': answer={answer!r} → option={best!r}")
                 target.select_option(sel, label=best)
             else:
                 target.select_option(sel, label=str(answer))
