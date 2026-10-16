@@ -212,7 +212,7 @@ export function Where() {
 
 /* ── Run it ─────────────────────────────────────────────────────────────── */
 const SETUP: [string, string][] = [
-  ["Get the code", "git clone https://github.com/mudit7011/jobcopilot && cd jobcopilot"],
+  ["Get the code", "git clone https://github.com/mudit7011/pursuit-jobs && cd pursuit-jobs"],
   ["Install it", "pip install -r requirements.txt && playwright install chromium"],
   ["Log in to the job sites once", "python setup_sessions.py naukri instahyre wellfound"],
   ["Start the bot", "python -m src.main"],

@@ -15,7 +15,7 @@
 ## Step 2: Generate Telegram Session String
 
 ```bash
-cd pursuit
+cd pursuit-jobs
 cp .env.example .env
 # Fill in TELEGRAM_API_ID and TELEGRAM_API_HASH first, then:
 python3 generate_session.py

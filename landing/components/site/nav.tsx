@@ -11,7 +11,7 @@ export const LINKS = [
   { href: "/platforms", label: "Where it applies" },
   { href: "/get-started", label: "Get started" },
 ]
-export const REPO = "https://github.com/mudit7011/jobcopilot"
+export const REPO = "https://github.com/mudit7011/pursuit-jobs"
 
 /* The same pill nav the dashboard uses: the page you're on is the black pill. */
 export default function Nav() {

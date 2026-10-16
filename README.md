@@ -66,8 +66,8 @@ A local web app for everything the bot does.
 ## Getting started
 
 ```bash
-git clone https://github.com/mudit7011/jobcopilot.git pursuit
-cd pursuit
+git clone https://github.com/mudit7011/pursuit-jobs.git
+cd pursuit-jobs
 
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
