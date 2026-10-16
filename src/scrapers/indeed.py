@@ -39,11 +39,14 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
             const locationEl = el.querySelector(
                 '[data-testid="text-location"], .companyLocation');
             const linkEl = el.querySelector('h2.jobTitle a, a.jcs-JobTitle');
+            // 2026 layout: no <h2>; the title is the a.jcs-JobTitle link text.
+            const title = (titleEl ? titleEl.innerText : (linkEl ? linkEl.innerText : '')).trim();
             return {
-                title:    titleEl   ? titleEl.innerText.trim()   : '',
+                title:    title,
                 company:  companyEl ? companyEl.innerText.trim() : 'Unknown',
                 location: locationEl? locationEl.innerText.trim(): '',
-                href:     linkEl    ? linkEl.href                : ''
+                href:     linkEl    ? linkEl.href                : '',
+                easy:     /easily apply/i.test(el.innerText)
             };
         })"""
     )
@@ -60,6 +63,10 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
         if is_blacklisted(title, blacklist):
             log.info(f"Indeed: blacklisted — {title}")
             continue
+        if not card.get("easy"):
+            # External-apply jobs bounce to company sites the bot can't reliably fill.
+            log.info(f"Indeed: external apply, skipping — {title}")
+            continue
         if not href.startswith("http"):
             href = "https://in.indeed.com" + href
         # Normalise to clean viewjob URL — strip tracking params (vjs=3, xpse, xfps, etc.)
@@ -70,7 +77,7 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
 
         try:
             search_url = page.url
-            page.goto(href, timeout=20000)
+            page.goto(href, timeout=45000, wait_until="domcontentloaded")
             _human_delay(1.0, 2.0)
 
             jd_text = ""
@@ -82,7 +89,7 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
                                    apply_url=href, jd_text=jd_text, source="indeed"))
             log.info(f"Indeed: {title} @ {company}")
 
-            page.goto(search_url, timeout=20000)
+            page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
             _human_delay(1.5, 2.5)
 
         except Exception as e:
@@ -117,7 +124,7 @@ def scrape_indeed(keywords: List[str], locations: List[str],
                 url = _build_url(kw, loc, experience_max)
                 log.info(f"Indeed: {kw} in {loc}")
                 try:
-                    page.goto(url, timeout=30000)
+                    page.goto(url, timeout=45000, wait_until="domcontentloaded")
                     _human_delay(2.0, 3.5)
                     for job in _extract(page, blacklist):
                         if job.apply_url not in seen and len(all_jobs) < max_jobs:

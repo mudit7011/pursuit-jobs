@@ -126,7 +126,7 @@ def _jobs_from_company(page: Page, slug: str, blacklist: List[str]) -> List[Scra
     jobs = []
     url = f"https://wellfound.com/company/{slug}/jobs"
     try:
-        page.goto(url, timeout=20000)
+        page.goto(url, timeout=45000, wait_until="domcontentloaded")
         _human_delay(1.5, 2.5)
     except Exception as e:
         log.warning(f"Wellfound: failed to load {url} — {e}")
@@ -293,7 +293,7 @@ def scrape_wellfound(keywords: List[str], blacklist: List[str] = [],
         for kw, loc in search_combos:
             if len(all_jobs) >= max_jobs: break
             try:
-                page.goto(_build_search_url(kw, loc), timeout=30000)
+                page.goto(_build_search_url(kw, loc), timeout=45000, wait_until="domcontentloaded")
                 _human_delay(2.0, 3.0)
 
                 slugs = _get_company_slugs(page)

@@ -12,15 +12,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 from src.profile import load_profile
 from src.applicators.indeed_apply import apply_indeed
 
-# Indeed "Apply with Indeed" job URL
-TEST_URL  = os.getenv("TEST_URL", "https://in.indeed.com/viewjob?jk=63ccbffcded95ad7")
-COMPANY   = os.getenv("TEST_COMPANY", "Apex Star Technologies")
-ROLE      = os.getenv("TEST_ROLE", "Python Backend Developer")
+# Indeed "Apply with Indeed" job URL — change this to a fresh job each test run
+TEST_URL  = os.getenv("TEST_URL", "https://in.indeed.com/viewjob?jk=b2373744e79eec68")
+COMPANY   = os.getenv("TEST_COMPANY", "KSK DataSoft")
+ROLE      = os.getenv("TEST_ROLE", "Software Engineer - AI & Automation")
 JD_SUMMARY = "Software Engineer role requiring Python/Node.js backend development skills."
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
-PDF_PATH = "output/MuditKumar_resume.pdf"
+PDF_PATH = "templates/resume.pdf"
 if not os.path.exists(PDF_PATH):
     import glob
     pdfs = glob.glob("output/*.pdf")

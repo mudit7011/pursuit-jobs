@@ -21,7 +21,7 @@ def test_load_profile_returns_userprofile(tmp_path):
         "location_preference": "Remote",
         "work_authorization": "Authorized to work in India",
         "skills": ["Python", "Node.js"],
-        "resume_pdf_path": "templates/MuditCV.pdf",
+        "resume_pdf_path": "templates/resume.pdf",
         "summary": "A backend developer."
     }
     profile_file = tmp_path / "profile.json"

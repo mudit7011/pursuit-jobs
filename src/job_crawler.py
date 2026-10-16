@@ -2,7 +2,7 @@
 Job Crawler — runs all platform scrapers on schedule.
 LinkedIn: once per day (to avoid bans).
 Others (Naukri, Indeed, Wellfound, Internshala): every hour.
-Instahyre: skipped — platform is recruiter-driven, apply manually.
+Instahyre: every run, using the saved session (one-click apply).
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from src.scrapers.naukri import scrape_naukri
 from src.scrapers.indeed import scrape_indeed
 from src.scrapers.wellfound import scrape_wellfound
 from src.scrapers.internshala import scrape_internshala
-from src.applicators.indeed_apply import apply_indeed
+from src.scrapers.instahyre import scrape_instahyre
 from src.models import JobPosting, ApplyType
 from src.profile import load_profile
 from src.tracker import is_duplicate
@@ -33,6 +33,12 @@ CRAWL_INTERVAL        = int(os.getenv("CRAWL_INTERVAL_SECONDS", "3600"))   # 1 h
 LINKEDIN_INTERVAL     = int(os.getenv("LINKEDIN_INTERVAL_SECONDS", "86400"))  # 24 hours
 
 _linkedin_last_run: float = 0.0  # epoch seconds
+
+_SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "sessions")
+
+
+def _has_session(platform: str) -> bool:
+    return os.path.exists(os.path.join(_SESSIONS_DIR, f"{platform}.json"))
 
 
 # ── Title relevance filter ───────────────────────────────────────────────────
@@ -66,7 +72,7 @@ _IRRELEVANT_TITLE_KEYWORDS = {
     "content writer", "technical writer",
     "finance", "accountant", "chartered",
     "consultant", "visio", "monday.com",
-    "data governance", "data engineer",  # not mudit's target
+    "data governance", "data engineer",  # not a target role
     "capital markets", "asset management", "banking domain",
     "loan iq", "pl/sql", "idq", "cdq",
 }
@@ -94,6 +100,8 @@ def _to_job_posting(job: ScrapedJob) -> JobPosting:
         apply_type = ApplyType.WELLFOUND_APPLY
     elif job.source == "indeed":
         apply_type = ApplyType.INDEED_APPLY
+    elif job.source == "instahyre":
+        apply_type = ApplyType.INSTAHYRE_APPLY
     else:
         apply_type = ApplyType.WEB_FORM
 
@@ -133,7 +141,7 @@ async def run_crawlers(process_job_fn) -> None:
     if linkedin_due and LINKEDIN_EMAIL and LINKEDIN_PASSWORD:
         log.info("LinkedIn scraper starting (daily run)...")
         try:
-            jobs = scrape_linkedin(
+            jobs = await asyncio.to_thread(scrape_linkedin,
                 email=LINKEDIN_EMAIL, password=LINKEDIN_PASSWORD,
                 keywords=keywords, locations=locations,
                 experience_min=exp_min, experience_max=exp_max,
@@ -151,10 +159,11 @@ async def run_crawlers(process_job_fn) -> None:
         log.info("LinkedIn credentials not set — skipping")
 
     # ── Naukri ───────────────────────────────────────────────────────────────
-    if NAUKRI_EMAIL and NAUKRI_PASSWORD:
+    # The saved browser session is enough; credentials are only a fallback login.
+    if (NAUKRI_EMAIL and NAUKRI_PASSWORD) or _has_session("naukri"):
         log.info("Naukri scraper starting...")
         try:
-            jobs = scrape_naukri(
+            jobs = await asyncio.to_thread(scrape_naukri,
                 email=NAUKRI_EMAIL, password=NAUKRI_PASSWORD,
                 keywords=keywords, experience=max(exp_min, 1),
                 blacklist=blacklist, max_jobs=40,
@@ -164,12 +173,12 @@ async def run_crawlers(process_job_fn) -> None:
         except Exception as e:
             log.error(f"Naukri scraper failed: {e}")
     else:
-        log.info("Naukri credentials not set — skipping")
+        log.info("Naukri: no session or credentials — run: python setup_sessions.py naukri")
 
     # ── Indeed ───────────────────────────────────────────────────────────────
     log.info("Indeed scraper starting...")
     try:
-        jobs = scrape_indeed(
+        jobs = await asyncio.to_thread(scrape_indeed,
             keywords=keywords, locations=locations,
             experience_max=exp_max, blacklist=blacklist, max_jobs=40,
         )
@@ -181,7 +190,7 @@ async def run_crawlers(process_job_fn) -> None:
     # ── Wellfound ────────────────────────────────────────────────────────────
     log.info("Wellfound scraper starting...")
     try:
-        jobs = scrape_wellfound(keywords=keywords, blacklist=blacklist, max_jobs=30)
+        jobs = await asyncio.to_thread(scrape_wellfound, keywords=keywords, blacklist=blacklist, max_jobs=30)
         all_jobs.extend(jobs)
         log.info(f"Wellfound: {len(jobs)} jobs found")
     except Exception as e:
@@ -190,11 +199,21 @@ async def run_crawlers(process_job_fn) -> None:
     # ── Internshala ──────────────────────────────────────────────────────────
     log.info("Internshala scraper starting...")
     try:
-        jobs = scrape_internshala(keywords=keywords, blacklist=blacklist, max_jobs=30)
+        jobs = await asyncio.to_thread(scrape_internshala, keywords=keywords, blacklist=blacklist, max_jobs=30)
         all_jobs.extend(jobs)
         log.info(f"Internshala: {len(jobs)} jobs found")
     except Exception as e:
         log.error(f"Internshala scraper failed: {e}")
+
+    # ── Instahyre ────────────────────────────────────────────────────────────
+    if _has_session("instahyre"):
+        log.info("Instahyre scraper starting...")
+        try:
+            jobs = await asyncio.to_thread(scrape_instahyre, keywords=keywords, blacklist=blacklist, max_jobs=30)
+            all_jobs.extend(jobs)
+            log.info(f"Instahyre: {len(jobs)} jobs found")
+        except Exception as e:
+            log.error(f"Instahyre scraper failed: {e}")
 
     log.info(f"Crawler total: {len(all_jobs)} jobs across all platforms")
 

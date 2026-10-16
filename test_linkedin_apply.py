@@ -24,7 +24,7 @@ JD_SUMMARY = ""
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
-PDF_PATH = "output/MuditKumar_resume.pdf"
+PDF_PATH = "templates/resume.pdf"
 if not os.path.exists(PDF_PATH):
     pdfs = glob.glob("output/*.pdf")
     PDF_PATH = pdfs[0] if pdfs else ""
@@ -45,7 +45,7 @@ def _scrape_job(url: str) -> dict:
                 viewport={"width": 1280, "height": 900}
             )
             page = ctx.new_page()
-            page.goto(url, timeout=30000)
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
             time.sleep(5)
 
             # Parse title: "Role | Company | LinkedIn"
@@ -96,9 +96,9 @@ if not TEST_URL:
         for kw in _keywords:
             kw_enc = kw.replace(" ", "%20")
             page.goto(
-                f"https://www.linkedin.com/jobs/search/?f_AL=true&f_E=1%2C2&f_TPR=r7200"
+                f"https://www.linkedin.com/jobs/search/?f_AL=true&f_E=1%2C2&f_TPR=r86400"
                 f"&sortBy=DD&keywords={kw_enc}&location=India",
-                timeout=30000
+                timeout=45000, wait_until="domcontentloaded",
             )
             time.sleep(5)
 

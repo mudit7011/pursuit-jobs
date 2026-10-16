@@ -23,11 +23,11 @@ async def start_monitor():
             return
         log.info(f"New message received ({len(message_text)} chars)")
         try:
-            job = parse_job_message(message_text)
+            job = await asyncio.to_thread(parse_job_message, message_text)
             await process_job(job)
         except Exception as e:
             log.error(f"Pipeline error: {e}")
 
     await client.start()
-    log.info("Job Autopilot running — monitoring Telegram group...")
+    log.info("Pursuit running — monitoring Telegram group...")
     await client.run_until_disconnected()

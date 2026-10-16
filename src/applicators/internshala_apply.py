@@ -291,6 +291,19 @@ def _fill_step(page: Page, profile: UserProfile,
 
 # ── Main applicator ──────────────────────────────────────────────────────────
 
+def _wait_visible(page: Page, selectors: list, timeout: float) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        for sel in selectors:
+            try:
+                if any(el.is_visible() for el in page.query_selector_all(sel)):
+                    return True
+            except Exception:
+                pass
+        time.sleep(0.3)
+    return False
+
+
 def apply_internshala(
     apply_url: str,
     company: str,
@@ -327,12 +340,14 @@ def apply_internshala(
         log.info(f"Internshala Apply: '{role}' @ {company}")
 
         try:
-            page.goto(apply_url, timeout=30000)
+            page.goto(apply_url, timeout=45000, wait_until="domcontentloaded")
             _delay(2.0, 3.0)
 
             # Click Apply Now button
             apply_btn = None
             for sel in [
+                "#top_easy_apply_button",
+                "#easy_apply_button",
                 "#apply-button",
                 "a#apply-button",
                 ".apply_now_btn",
@@ -357,14 +372,13 @@ def apply_internshala(
 
             # ── Step loop ────────────────────────────────────────────────────
             for step in range(10):
-                try:
-                    page.wait_for_selector(
-                        "#apply-section, .apply-modal, #application-form, "
-                        "form.application-form, #cover-letter, "
-                        "form[action*='apply'], .modal-body",
-                        timeout=6000
-                    )
-                except PWTimeout:
+                # A selector list resolves to the first match in DOM order, which can be a
+                # hidden .modal-body elsewhere on the page — so wait for any *visible* one.
+                if not _wait_visible(page, [
+                    "#easy_apply_modal #application-form", "#application-form",
+                    "#apply-section", ".apply-modal", "form.application-form",
+                    "#cover-letter", "form[action*='apply']",
+                ], timeout=8.0):
                     log.warning(f"Internshala step {step}: no form found")
                     break
 

@@ -4,6 +4,7 @@ import os
 import logging
 import google.generativeai as genai
 from dataclasses import dataclass
+from typing import Optional
 from src.models import JobPosting
 from src.profile import UserProfile
 from src.config import GEMINI_API_KEY
@@ -19,9 +20,10 @@ MOCK_GEMINI = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 class EligibilityResult:
     eligible: bool
     reason: str
+    score: Optional[int] = None  # skills overlap 0-100, when the LLM check ran
 
 
-def check_eligibility(job: JobPosting, profile: UserProfile) -> EligibilityResult:
+def check_eligibility(job: JobPosting, profile: UserProfile, min_fit: int = 40) -> EligibilityResult:
     """
     Check whether the user is eligible to apply to this job.
     Runs batch and experience checks without LLM first (fast).
@@ -61,7 +63,7 @@ def check_eligibility(job: JobPosting, profile: UserProfile) -> EligibilityResul
     # Rule 3: skills overlap via Gemini (skipped in mock mode)
     if MOCK_GEMINI:
         log.info("MOCK_GEMINI=true — skipping Gemini skills check, defaulting to 75% overlap")
-        return EligibilityResult(eligible=True, reason="[MOCK] 75% skills overlap")
+        return EligibilityResult(eligible=True, reason="[MOCK] 75% skills overlap", score=75)
 
     prompt = f"""Given this job description and candidate skills, return ONLY a JSON object.
 
@@ -71,6 +73,7 @@ Candidate skills: {", ".join(profile.skills)}
 Return exactly: {{"overlap_percent": <integer 0-100>, "reason": "<one sentence>"}}
 overlap_percent is the percentage of required job skills the candidate has."""
 
+    score = None
     try:
         response = model.generate_content(prompt)
         raw = response.text.strip()
@@ -78,15 +81,18 @@ overlap_percent is the percentage of required job skills the candidate has."""
         raw = re.sub(r"\s*```$", "", raw)
         result = json.loads(raw)
         overlap = int(result.get("overlap_percent", 100))
-        if overlap < 40:
+        score = overlap
+        if overlap < min_fit:
             return EligibilityResult(
                 eligible=False,
                 reason=(
                     f"Skills mismatch — only {overlap}% overlap: "
                     f"{result.get('reason', '')}"
                 ),
+                score=overlap,
             )
+        return EligibilityResult(eligible=True, reason=result.get("reason", ""), score=overlap)
     except Exception as e:
         log.warning(f"Skills eligibility check failed, defaulting to eligible: {e}")
 
-    return EligibilityResult(eligible=True, reason="")
+    return EligibilityResult(eligible=True, reason="", score=score)

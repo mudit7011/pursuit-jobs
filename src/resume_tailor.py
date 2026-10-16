@@ -51,21 +51,26 @@ def _compile_latex(latex_content: str) -> bytes:
             return f.read()
 
 
-def save_pdf(company: str, role: str, jd_summary: str, output_path: str) -> str:
+def tailor_pdf(company: str, role: str, jd_summary: str, output_path: str) -> bool:
+    """Write a tailored PDF. Returns False if Gemini's LaTeX was invalid and the
+    unmodified base template was used instead."""
     base_latex = open(BASE_TEMPLATE_PATH).read()
-
-    # Try tailored version first, fall back to base template if LaTeX is invalid
+    tailored = True
     try:
         prompt = _build_tailor_prompt(base_latex, jd_summary, company, role)
         response = model.generate_content(prompt)
-        tailored_latex = _extract_latex(response.text)
-        pdf_bytes = _compile_latex(tailored_latex)
+        pdf_bytes = _compile_latex(_extract_latex(response.text))
     except RuntimeError:
         # Gemini produced invalid LaTeX — compile the unmodified base template
         pdf_bytes = _compile_latex(base_latex)
+        tailored = False
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(pdf_bytes)
+    return tailored
 
+
+def save_pdf(company: str, role: str, jd_summary: str, output_path: str) -> str:
+    tailor_pdf(company, role, jd_summary, output_path)
     return output_path

@@ -15,6 +15,7 @@ from src.scrapers.base import ScrapedJob, is_blacklisted
 
 log = logging.getLogger(__name__)
 _SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/instahyre.json")
+MATCHING_URL = "https://www.instahyre.com/candidate/opportunities/?matching=true"
 
 
 def _human_delay(min_s: float = 0.8, max_s: float = 2.0):
@@ -25,7 +26,7 @@ def _search_and_extract(page: Page, keyword: str, blacklist: List[str]) -> List[
     jobs = []
 
     # Navigate to opportunities page
-    page.goto("https://www.instahyre.com/candidate/opportunities/", timeout=30000)
+    page.goto("https://www.instahyre.com/candidate/opportunities/", timeout=45000, wait_until="domcontentloaded")
     _human_delay(2.0, 3.0)
 
     # Instahyre uses a custom React component for skills input.
@@ -105,6 +106,11 @@ def _search_and_extract(page: Page, keyword: str, blacklist: List[str]) -> List[
         page.keyboard.press("Enter")
         _human_delay(2.5, 4.0)
 
+    return _extract_cards(page, blacklist)
+
+
+def _extract_cards(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
+    jobs = []
     # Wait for job cards — Instahyre uses .employer-block as the card wrapper
     try:
         page.wait_for_selector(".employer-block, .employer-row", timeout=8000)
@@ -160,51 +166,30 @@ def _search_and_extract(page: Page, keyword: str, blacklist: List[str]) -> List[
                 href = page.url  # fallback
             if href and not href.startswith("http"):
                 href = "https://www.instahyre.com" + href
+            # Cards have no per-job link; the applicator finds the job by company + title
+            # on the matching list, which (unlike search results) survives a reload.
+            if "/job-" not in href:
+                href = MATCHING_URL
 
-            # "View »" opens an inline MODAL on the same page (not a new tab)
+            # "View job »" opens .application-modal-wrap on the same page.
             jd_text = ""
             try:
-                view_btn = card.query_selector("#interested-btn, .button-interested")
+                view_btn = card.query_selector(".btn-interested, #interested-btn, .button-interested")
                 if view_btn:
                     view_btn.click()
-                    _human_delay(1.2, 2.0)
-                    # Wait for modal to appear
                     try:
-                        page.wait_for_selector(
-                            ".modal.in, .modal[style*='display: block'], "
-                            ".modal-dialog, [class*='opportunity-modal']",
-                            timeout=6000)
+                        page.wait_for_selector(".application-modal-wrap", state="visible", timeout=8000)
+                        _human_delay(0.8, 1.4)
+                        modal = page.query_selector(".application-modal-wrap")
+                        jd_text = modal.inner_text().strip()[:3000] if modal else ""
                     except PWTimeout:
-                        pass
-
-                    modal = page.query_selector(
-                        ".modal.in, .modal[style*='display: block'], .modal-dialog")
-                    if modal:
-                        # Update title/company from modal (more accurate)
-                        modal_title = modal.query_selector("h2, h3, .modal-title, [class*='job-title']")
-                        modal_company = modal.query_selector(".company-name, h4 a, [class*='company']")
-                        if modal_title:
-                            t = modal_title.inner_text().strip().split("\n")[0]
-                            if t and len(t) > 2:
-                                title = t
-                        if modal_company:
-                            c = modal_company.inner_text().strip().split("\n")[0]
-                            if c and len(c) > 1:
-                                company = c
-
-                        jd_el = modal.query_selector(
-                            ".job-description, [class*='description'], .jd-text, p")
-                        if jd_el:
-                            jd_text = jd_el.inner_text().strip()[:3000]
-
-                        # Close modal
-                        close_btn = page.query_selector(
-                            ".modal .close, .modal button.close, [data-dismiss='modal']")
-                        if close_btn:
-                            close_btn.click()
-                        else:
-                            page.keyboard.press("Escape")
-                        _human_delay(0.5, 1.0)
+                        log.warning(f"Instahyre: job modal didn't open for {title}")
+                    close_btn = page.query_selector(".application-modal-close")
+                    if close_btn and close_btn.is_visible():
+                        close_btn.click()
+                    else:
+                        page.keyboard.press("Escape")
+                    _human_delay(0.6, 1.0)
             except Exception as e:
                 log.warning(f"Instahyre: modal JD error — {e}")
 
@@ -254,18 +239,20 @@ def scrape_instahyre(
         page = ctx.new_page()
         log.info("Instahyre: loaded saved session")
 
-        for keyword in keywords:
-            if len(all_jobs) >= max_jobs:
-                break
-            log.info(f"Instahyre: searching '{keyword}'")
-            try:
-                for job in _search_and_extract(page, keyword, blacklist):
-                    if job.apply_url not in seen_urls and len(all_jobs) < max_jobs:
-                        seen_urls.add(job.apply_url)
-                        all_jobs.append(job)
-            except Exception as e:
-                log.warning(f"Instahyre: search failed for '{keyword}' — {e}")
-            _human_delay(2.0, 3.5)
+        # Instahyre's own matching list (InstaMatch). Keyword search results can't be
+        # reloaded later, so applying from them isn't reliable.
+        try:
+            page.goto(MATCHING_URL, timeout=45000, wait_until="domcontentloaded")
+            page.wait_for_selector(".employer-block", timeout=20000)
+            _human_delay(1.5, 2.5)
+            for job in _extract_cards(page, blacklist):
+                key = (job.company.lower(), job.title.lower())
+                if key in seen_urls or len(all_jobs) >= max_jobs:
+                    continue
+                seen_urls.add(key)
+                all_jobs.append(job)
+        except Exception as e:
+            log.warning(f"Instahyre: matching list failed — {e}")
 
         browser.close()
 

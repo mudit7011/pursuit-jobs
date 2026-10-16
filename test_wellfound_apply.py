@@ -19,7 +19,7 @@ JD_SUMMARY = "Software Engineer role at Xohani Solutions working with Monday.com
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
-PDF_PATH = "output/MuditKumar_resume.pdf"
+PDF_PATH = "templates/resume.pdf"
 if not os.path.exists(PDF_PATH):
     import glob
     pdfs = glob.glob("output/*.pdf")

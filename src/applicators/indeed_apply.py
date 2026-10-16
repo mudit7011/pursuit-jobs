@@ -19,8 +19,9 @@ from src.profile import UserProfile
 
 log = logging.getLogger(__name__)
 
-_SESSION_FILE = os.path.join(os.path.dirname(__file__), "../../sessions/indeed.json")
-_MOCK_GEMINI  = os.getenv("MOCK_GEMINI", "false").lower() == "true"
+_SESSION_FILE  = os.path.join(os.path.dirname(__file__), "../../sessions/indeed.json")
+_GOOGLE_SESSION = os.path.join(os.path.dirname(__file__), "../../sessions/google.json")
+_MOCK_GEMINI   = os.getenv("MOCK_GEMINI", "false").lower() == "true"
 
 genai.configure(api_key=GEMINI_API_KEY)
 _model = genai.GenerativeModel("gemini-2.5-flash")
@@ -188,36 +189,56 @@ def apply_indeed(
     upload resume, and submit.
     Returns True on success, False if external-apply or on error.
     """
+    # Session file kept for fallback reference but not used — Brave profile
+    # carries the real logged-in cookies directly.
     session_file = os.path.abspath(_SESSION_FILE)
-    if not os.path.exists(session_file):
-        log.error("Indeed session not found — run setup_sessions.py first")
-        return False
+
+    # Use the Brave binary (real browser fingerprint) with a temp profile dir
+    # so we don't conflict with a running Brave instance (SingletonLock).
+    # Inject stored Indeed cookies so we're already logged in.
+    BRAVE_EXE = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+
+    import tempfile, shutil
+    _tmp_profile = tempfile.mkdtemp(prefix="autopilot_brave_")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=_tmp_profile,
+            executable_path=BRAVE_EXE,
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
                 "--no-first-run",
+                "--no-default-browser-check",
             ],
-        )
-        ctx = browser.new_context(
-            storage_state=session_file,
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
             viewport={"width": 1280, "height": 900},
             locale="en-IN",
             timezone_id="Asia/Kolkata",
         )
+
+        # Inject saved Indeed + Google cookies.
+        # Google cookies are the key: reCAPTCHA checks google.com cookies to
+        # verify you're a real logged-in user — this eliminates the v2 checkbox.
+        all_cookies = []
+        for path, label in [(session_file, "Indeed"), (os.path.abspath(_GOOGLE_SESSION), "Google")]:
+            if os.path.exists(path):
+                try:
+                    saved = json.load(open(path))
+                    cookies = saved.get("cookies", [])
+                    all_cookies.extend(cookies)
+                    log.info(f"Indeed: loaded {len(cookies)} {label} cookies")
+                except Exception as e:
+                    log.warning(f"Indeed: could not load {label} cookies — {e}")
+
+        if all_cookies:
+            ctx.add_cookies(all_cookies)
+            log.info(f"Indeed: injected {len(all_cookies)} total cookies into Brave")
+
         page = ctx.new_page()
         log.info(f"Indeed Apply: '{role}' @ {company}")
 
         try:
-            page.goto(apply_url, timeout=30000)
+            page.goto(apply_url, timeout=45000, wait_until="domcontentloaded")
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
             except PWTimeout:
@@ -231,6 +252,9 @@ def apply_indeed(
             # "Apply on company site" for external redirects — skip those.
             easy_apply_btn = None
             for sel in [
+                # 2026 layout: an <a> to smartapply.indeed.com labelled "Apply now"
+                "[data-testid='viewjob-indeed-apply']",
+                "a[href*='smartapply.indeed.com']",
                 "button:has-text('Apply with Indeed')",
                 "button:has-text('Easily apply')",
                 "button:has-text('Easily Apply')",
@@ -252,7 +276,8 @@ def apply_indeed(
                 return False
 
             url_before = page.url
-            easy_apply_btn.click()
+            # Use JS click to bypass disabled/pointer-events state
+            page.evaluate("el => el.click()", easy_apply_btn)
             _delay(2.0, 3.0)
 
             # If navigated away, it's an external application — skip
@@ -376,15 +401,15 @@ def apply_indeed(
                         if has_captcha:
                             log.info("Indeed: reCAPTCHA detected — waiting for you to solve it in the browser...")
                             print("\n⚠️  Please solve the 'I am not a robot' CAPTCHA in the browser window, then wait.")
-                            # Poll until submit becomes enabled (max 120 seconds)
-                            for _ in range(60):
+                            # Poll until submit becomes enabled (max 5 minutes)
+                            for _ in range(150):
                                 time.sleep(2)
                                 still_disabled = page.evaluate("el => el.disabled", submit_btn)
                                 if not still_disabled:
                                     log.info("Indeed: CAPTCHA solved — submitting now")
                                     break
                             else:
-                                log.warning("Indeed: CAPTCHA not solved within 120s — skipping")
+                                log.warning("Indeed: CAPTCHA not solved within 5min — skipping")
                                 return False
                         else:
                             log.warning("Indeed: Submit disabled (reason unknown) — skipping")
@@ -428,4 +453,8 @@ def apply_indeed(
             log.error(f"Indeed Apply error: {e}")
             return False
         finally:
-            browser.close()
+            ctx.close()
+            try:
+                shutil.rmtree(_tmp_profile, ignore_errors=True)
+            except Exception:
+                pass

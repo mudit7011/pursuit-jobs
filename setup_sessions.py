@@ -4,13 +4,21 @@ Opens a real browser for each platform, you login normally (Google, email, whate
 then press Enter and the session is saved. Scrapers reuse these sessions.
 """
 
-import os, time
+import os, sys, time
 from playwright.sync_api import sync_playwright
 
 SESSIONS_DIR = os.path.join(os.path.dirname(__file__), "sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 PLATFORMS = [
+    {
+        "name": "Google (for reCAPTCHA bypass)",
+        "file": "google.json",
+        "channel": "chrome",   # real Chrome: Google blocks sign-in from bundled Chromium
+        "url":  "https://accounts.google.com",
+        "check": "**/myaccount**",
+        "note": "Just make sure you're logged into Google, then press Enter.",
+    },
     {
         "name": "LinkedIn",
         "file": "linkedin.json",
@@ -63,6 +71,7 @@ def setup_platform(playwright, platform: dict):
 
     browser = playwright.chromium.launch(
         headless=False,
+        channel=platform.get("channel"),
         args=["--disable-blink-features=AutomationControlled"],
     )
     ctx = browser.new_context(
@@ -73,9 +82,9 @@ def setup_platform(playwright, platform: dict):
     page = ctx.new_page()
     page.goto(platform["url"], timeout=30000)
 
+    note = platform.get("note", "Login manually (Google, email — whatever you use).\n  Once you're on the home/dashboard page, come back here.")
     print(f"  Browser opened for {name}.")
-    print(f"  Login manually (Google, email — whatever you use).")
-    print(f"  Once you're on the home/dashboard page, come back here.")
+    print(f"  {note}")
     input(f"  Press ENTER to save {name} session... ")
 
     ctx.storage_state(path=path)
@@ -84,7 +93,21 @@ def setup_platform(playwright, platform: dict):
 
 
 def main():
-    print("\nJob Autopilot — Session Setup")
+    # `python setup_sessions.py wellfound instahyre` refreshes just those, no prompts.
+    wanted = {a.lower() for a in sys.argv[1:]}
+    if wanted:
+        chosen = [p for p in PLATFORMS if p["file"].removesuffix(".json") in wanted]
+        unknown = wanted - {p["file"].removesuffix(".json") for p in chosen}
+        if unknown:
+            names = ", ".join(p["file"].removesuffix(".json") for p in PLATFORMS)
+            print(f"Unknown platform(s): {', '.join(sorted(unknown))}. Choose from: {names}")
+            return
+        with sync_playwright() as p:
+            for platform in chosen:
+                setup_platform(p, platform)
+        return
+
+    print("\nPursuit — Session Setup")
     print("This will open a browser for each platform.")
     print("Login normally, then press Enter to save the session.\n")
 

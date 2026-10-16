@@ -21,7 +21,7 @@ JD_SUMMARY = "Software Engineer role requiring Python/Node.js backend developmen
 
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 
-PDF_PATH = "output/MuditKumar_resume.pdf"
+PDF_PATH = "templates/resume.pdf"
 if not os.path.exists(PDF_PATH):
     import glob
     pdfs = glob.glob("output/*.pdf")
@@ -39,7 +39,7 @@ if not TEST_URL:
             viewport={"width": 1280, "height": 900}
         )
         page = ctx.new_page()
-        page.goto("https://www.naukri.com/software-developer-jobs?experience=0&jobAge=1", timeout=30000)
+        page.goto("https://www.naukri.com/software-developer-jobs?experience=0&jobAge=1", timeout=45000, wait_until="domcontentloaded")
         time.sleep(6)
         cards = page.query_selector_all(".srp-jobtuple-wrapper, article.jobTuple")
         found = []

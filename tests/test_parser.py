@@ -128,3 +128,35 @@ def test_parse_greenhouse_url_returns_web_form():
         result = parse_job_message("some job posting text")
     assert result.apply_type == ApplyType.WEB_FORM
     assert "greenhouse" in result.apply_target
+
+
+def test_apply_url_taken_verbatim_from_message():
+    from src.parser import _verbatim_url
+    real = "https://docs.google.com/forms/d/e/1FAIpQLSdNYw24u5yqcpRxoxun4GrHO6OD3E-abc/viewform"
+    msg = f"Hiring SWE! Apply here: {real} . Batch 2024"
+    garbled = real.replace("u5", "y5")
+    assert _verbatim_url(garbled, msg) == real
+    assert _verbatim_url("", msg) == real
+    assert _verbatim_url("hr@acme.com", msg) == "hr@acme.com"
+    assert _verbatim_url("https://totally-different.com/x", msg) == "https://totally-different.com/x"
+
+
+def test_new_ats_domains_are_web_forms():
+    from src.parser import _is_web_form
+    for u in ("https://ekacare.keka.com/careers/applyjob/1", "https://forms.cloud.microsoft/r/abc",
+              "https://forms.zohopublic.in/acme/form/Apply", "https://ats.rippling.com/acme/jobs/1"):
+        assert _is_web_form(u)
+
+
+def test_markdown_bold_is_stripped_from_urls():
+    from src.parser import _verbatim_url
+    msg = "Apply: **https://edmo.keka.com/careers/applyjob/144428**"
+    assert _verbatim_url("https://edmo.keka.com/careers/applyjob/144428**", msg) == "https://edmo.keka.com/careers/applyjob/144428"
+
+
+def test_unknown_careers_site_goes_to_generic_engine():
+    sample = '{"company": "PGAGI", "role": "AI Intern", "apply_type": "unknown", "apply_target": "https://pgagi.in/jobs/637f**", "is_relevant": true}'
+    with patch("src.parser.model") as m:
+        m.generate_content.return_value = MagicMock(text=sample)
+        job = parse_job_message("AI Intern at PGAGI, apply https://pgagi.in/jobs/637f** now")
+    assert job.apply_type == ApplyType.WEB_FORM and job.apply_target == "https://pgagi.in/jobs/637f"

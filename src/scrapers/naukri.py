@@ -22,7 +22,7 @@ def _human_delay(min_s: float = 0.8, max_s: float = 2.0):
 
 def _login(page: Page, email: str, password: str) -> bool:
     try:
-        page.goto("https://www.naukri.com/nlogin/login", timeout=30000)
+        page.goto("https://www.naukri.com/nlogin/login", timeout=45000, wait_until="domcontentloaded")
         _human_delay(1.5, 2.5)
 
         page.fill("#usernameField", email)
@@ -155,7 +155,7 @@ def scrape_naukri(
 
             url = _build_search_url(keyword, experience)
             log.info(f"Naukri scraping: {keyword}")
-            page.goto(url, timeout=30000)
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
             _human_delay(2.0, 3.0)
 
             jobs = _extract_jobs(page, blacklist)

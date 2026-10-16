@@ -10,6 +10,7 @@ class ApplyType(Enum):
     INTERNSHALA_APPLY = "internshala_apply"
     WELLFOUND_APPLY = "wellfound_apply"
     INDEED_APPLY = "indeed_apply"
+    INSTAHYRE_APPLY = "instahyre_apply"
     UNKNOWN = "unknown"
 
 @dataclass

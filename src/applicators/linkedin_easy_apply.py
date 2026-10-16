@@ -292,7 +292,7 @@ _EXTRACT_FIELDS_JS = """() => {
 
     // Strategy 4: aria-label / placeholder fallback (inside modal only)
     const modalRoot = document.querySelector(
-        '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], .jobs-easy-apply-content'
+        '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], .jobs-easy-apply-content, [data-testid="dialog"]'
     ) || document;
     modalRoot.querySelectorAll(
         'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]),' +
@@ -537,6 +537,28 @@ def _fill_field(target, field: dict, answer: str) -> None:
 
 # ── Fill one modal step ───────────────────────────────────────────────────────
 
+# LinkedIn's 2026 redesign dropped the .jobs-easy-apply-* classes; the modal is now a
+# generic dialog with hashed class names, identified by data-testid.
+_MODAL_SEL = (
+    ".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal'], "
+    ".jobs-easy-apply-content, [data-testid='dialog'][aria-labelledby='dialog-header']"
+)
+
+
+def _scope(page: Page):
+    """The Easy Apply modal if open, so we never click a page-level 'Next'/'Submit'."""
+    return page.query_selector(_MODAL_SEL) or page
+
+
+def _find_in_modal(page: Page, selectors: list):
+    root = _scope(page)
+    for sel in selectors:
+        el = root.query_selector(sel)
+        if el and el.is_visible():
+            return el
+    return None
+
+
 def _fill_step(page: Page, profile: UserProfile,
                jd_summary: str, company: str, role: str, pdf_path: str,
                force_fill: bool = False) -> None:
@@ -545,7 +567,8 @@ def _fill_step(page: Page, profile: UserProfile,
     # Resume upload detection
     heading = page.query_selector(
         '.jobs-easy-apply-modal h3, .jobs-easy-apply-modal h2, '
-        '.jobs-easy-apply-content h3, .jobs-easy-apply-content h2'
+        '.jobs-easy-apply-content h3, .jobs-easy-apply-content h2, '
+        '[data-testid="dialog"] h3, [data-testid="dialog"] h2'
     )
     heading_text = (heading.inner_text().strip().lower() if heading else "")
     if "resume" in heading_text or "cv" in heading_text:
@@ -749,11 +772,11 @@ def apply_linkedin_easy_apply(
         log.info(f"LinkedIn Easy Apply: '{role}' @ {company}")
 
         try:
-            page.goto(apply_url, timeout=30000)
+            page.goto(apply_url, timeout=45000, wait_until="domcontentloaded")
             _delay(2.0, 3.0)
 
             # Open the Easy Apply modal
-            if not page.query_selector(".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal']"):
+            if not page.query_selector(_MODAL_SEL):
                 easy_btn = None
                 for sel in [
                     "button[aria-label*='Easy Apply']",
@@ -776,11 +799,7 @@ def apply_linkedin_easy_apply(
 
             for step in range(50):
                 try:
-                    page.wait_for_selector(
-                        ".jobs-easy-apply-modal, [data-test-modal-id='easy-apply-modal'], "
-                        ".jobs-easy-apply-content",
-                        timeout=8000
-                    )
+                    page.wait_for_selector(_MODAL_SEL, timeout=8000)
                 except PWTimeout:
                     # Modal closed — check for success
                     try:
@@ -824,7 +843,7 @@ def apply_linkedin_easy_apply(
                     "button[aria-label='Submit application']",
                     "button:has-text('Submit application')",
                 ]:
-                    el = page.query_selector(sel)
+                    el = _scope(page).query_selector(sel)
                     if el and el.is_visible():
                         submit_btn = el
                         break
@@ -845,7 +864,7 @@ def apply_linkedin_easy_apply(
                     "button:has-text('Review')",
                     "button[aria-label='Review']",
                 ]:
-                    el = page.query_selector(sel)
+                    el = _scope(page).query_selector(sel)
                     if el and el.is_visible():
                         review_btn = el
                         break
@@ -919,7 +938,7 @@ def apply_linkedin_easy_apply(
                     "button:has-text('Next')",
                     "button:has-text('Continue')",
                 ]:
-                    el = page.query_selector(sel)
+                    el = _scope(page).query_selector(sel)
                     if el and el.is_visible():
                         next_btn = el
                         break
@@ -935,7 +954,7 @@ def apply_linkedin_easy_apply(
                 fallback = page.query_selector(
                     ".jobs-easy-apply-modal button.artdeco-button--primary, "
                     ".jobs-easy-apply-content button.artdeco-button--primary"
-                )
+                ) or _find_in_modal(page, ["button[data-live-test-easy-apply-submit-button]"])
                 if fallback and fallback.is_visible():
                     btn_text = fallback.inner_text().strip().lower()
                     log.info(f"Step {step}: fallback '{btn_text}'")

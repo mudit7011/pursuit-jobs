@@ -23,9 +23,18 @@ def _human_delay(min_s: float = 0.8, max_s: float = 2.2):
     time.sleep(random.uniform(min_s, max_s))
 
 
+def _unwrap_redirect(url: str) -> str:
+    """LinkedIn wraps external links as linkedin.com/safety/go/?url=<real url>."""
+    from urllib.parse import parse_qs, urlparse
+    parsed = urlparse(url)
+    if "linkedin.com" in parsed.netloc and parsed.path.startswith("/safety/go"):
+        return parse_qs(parsed.query).get("url", [url])[0]
+    return url
+
+
 def _login(page: Page, email: str, password: str) -> bool:
     try:
-        page.goto("https://www.linkedin.com/login", timeout=30000)
+        page.goto("https://www.linkedin.com/login", timeout=45000, wait_until="domcontentloaded")
         page.fill("#username", email)
         _human_delay()
         page.fill("#password", password)
@@ -56,7 +65,7 @@ def _build_search_url(keyword: str, location: str, exp_min: int, exp_max: int) -
     return (
         f"https://www.linkedin.com/jobs/search/"
         f"?keywords={keyword_enc}&location={location_enc}"
-        f"&f_E={f_E}&f_TPR=r86400&sortBy=DD"  # last 24h, sorted by date
+        f"&f_E={f_E}&f_TPR=r3600&sortBy=DD"  # last 1h, sorted newest first
     )
 
 
@@ -87,7 +96,7 @@ def _extract_jobs_from_page(page: Page, blacklist: List[str]) -> List[ScrapedJob
 
         try:
             # Navigate to each job page directly
-            page.goto(href, timeout=20000)
+            page.goto(href, timeout=45000, wait_until="domcontentloaded")
             _human_delay(1.5, 2.5)
 
             # Extract company + location from page title "Role | Company | LinkedIn"
@@ -131,7 +140,7 @@ def _extract_jobs_from_page(page: Page, blacklist: List[str]) -> List[ScrapedJob
                 log.info(f"LinkedIn Easy Apply: {title} @ {company}")
 
             elif external_apply_el:
-                external_url = external_apply_el.get_attribute("href") or page.url
+                external_url = _unwrap_redirect(external_apply_el.get_attribute("href") or page.url)
                 jobs.append(ScrapedJob(
                     title=title, company=company, location=location,
                     apply_url=external_url, jd_text=jd_text,
@@ -195,7 +204,7 @@ def scrape_linkedin(
 
                 url = _build_search_url(keyword, location, experience_min, experience_max)
                 log.info(f"LinkedIn scraping: {keyword} in {location}")
-                page.goto(url, timeout=30000)
+                page.goto(url, timeout=45000, wait_until="domcontentloaded")
                 _human_delay(2.0, 3.5)
 
                 jobs = _extract_jobs_from_page(page, blacklist)
@@ -223,7 +232,7 @@ def fill_linkedin_easy_apply(
     Returns True if submitted successfully.
     """
     try:
-        page.goto(job_url, timeout=30000)
+        page.goto(job_url, timeout=45000, wait_until="domcontentloaded")
         _human_delay(1.5, 2.5)
 
         apply_btn = page.wait_for_selector(".jobs-apply-button--top-card", timeout=8000)

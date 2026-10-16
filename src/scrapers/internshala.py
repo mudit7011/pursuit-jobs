@@ -18,9 +18,14 @@ def _build_url(keyword: str) -> str:
 
 def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
     jobs = []
+    if "user_preference" in page.url:
+        log.warning("Internshala wants you to confirm your preferences once — "
+                    "run: python setup_sessions.py internshala, click Continue, then press Enter")
+        return jobs
     try:
         page.wait_for_selector(".individual_internship, .job-internship-card", timeout=10000)
     except PWTimeout:
+        log.warning(f"Internshala: no job cards found on {page.url} (layout may have changed)")
         return jobs
 
     cards = page.query_selector_all(".individual_internship, .job-internship-card")
@@ -36,7 +41,8 @@ def _extract(page: Page, blacklist: List[str]) -> List[ScrapedJob]:
                 continue
 
             title = title_el.inner_text().strip()
-            company = company_el.inner_text().strip() if company_el else "Unknown"
+            # The company cell also holds badges like "Actively hiring" on later lines.
+            company = company_el.inner_text().strip().split("\n")[0].strip() if company_el else "Unknown"
             location = location_el.inner_text().strip() if location_el else "India"
 
             if is_blacklisted(title, blacklist):
@@ -96,7 +102,7 @@ def scrape_internshala(keywords: List[str], blacklist: List[str] = [],
         for kw in keywords:
             if len(all_jobs) >= max_jobs: break
             try:
-                page.goto(_build_url(kw), timeout=30000)
+                page.goto(_build_url(kw), timeout=45000, wait_until="domcontentloaded")
                 _human_delay(2.0, 3.5)
                 for job in _extract(page, blacklist):
                     if job.apply_url not in seen and len(all_jobs) < max_jobs:

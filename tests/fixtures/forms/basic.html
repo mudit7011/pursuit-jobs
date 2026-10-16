@@ -1,0 +1,21 @@
+<!doctype html><html><body>
+<h2>Apply for Backend Engineer</h2>
+<form id="f" onsubmit="event.preventDefault(); document.body.innerHTML = window.__ok ? '<h1>Thank you for applying!</h1>' : '<p>Something broke</p>';">
+  <label for="fn">First Name*</label><input id="fn" required>
+  <label for="em">Email*</label><input id="em" type="email" required>
+  <label for="ph">Phone</label><input id="ph" type="tel">
+  <label for="cv">Resume/CV*</label><input id="cv" type="file" required>
+  <!-- honeypot: must never be filled -->
+  <input id="hp" name="website_url" style="position:absolute;left:-9999px;width:0;height:0">
+  <input id="hp2" name="company_hp" style="display:none">
+  <fieldset><legend>Are you willing to relocate?*</legend>
+    <label><input type="radio" name="reloc" value="yes" required> Yes</label>
+    <label><input type="radio" name="reloc" value="no"> No</label>
+  </fieldset>
+  <label for="why">Why do you want to work here?</label><textarea id="why"></textarea>
+  <h3>Employment</h3>
+  <label for="cmp">Company name*</label><input id="cmp" required>
+  <button type="submit">Submit application</button>
+</form>
+<script>window.__ok = true;</script>
+</body></html>

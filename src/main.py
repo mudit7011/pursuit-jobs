@@ -2,12 +2,12 @@ import asyncio
 import os
 from src.monitor import start_monitor
 from src.job_crawler import crawler_loop
-from src.orchestrator import process_job
+from src.orchestrator import process_job, approval_worker
 
 ENABLE_CRAWLER = os.getenv("ENABLE_CRAWLER", "true").lower() == "true"
 
 async def main():
-    tasks = [start_monitor()]
+    tasks = [start_monitor(), approval_worker()]
     if ENABLE_CRAWLER:
         tasks.append(crawler_loop(process_job))
     await asyncio.gather(*tasks)

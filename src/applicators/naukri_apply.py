@@ -298,7 +298,7 @@ def apply_naukri(
             page.set_extra_http_headers({
                 "Referer": "https://www.naukri.com/software-developer-jobs"
             })
-            page.goto(apply_url, timeout=30000)
+            page.goto(apply_url, timeout=45000, wait_until="domcontentloaded")
             page.wait_for_load_state("networkidle", timeout=25000)
             _delay(2.0, 3.0)
 

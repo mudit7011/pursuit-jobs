@@ -280,7 +280,7 @@ def apply_wellfound(
         log.info(f"Wellfound Apply: '{role}' @ {company}")
 
         try:
-            page.goto(apply_url, timeout=30000)
+            page.goto(apply_url, timeout=45000, wait_until="domcontentloaded")
             # Wait for React to fully render the page
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
@@ -298,7 +298,8 @@ def apply_wellfound(
 
             # Detect bot-blocking page early
             page_text = page.evaluate("() => document.body ? document.body.innerText : ''")
-            if "access is temporarily restricted" in page_text.lower() or "bot" in page.title().lower():
+            log.info(f"Wellfound: page body preview — {page_text[:300]!r}")
+            if "access is temporarily restricted" in page_text.lower() or (not page_text.strip() and page.title() == "wellfound.com"):
                 log.error(
                     "Wellfound: bot detection triggered — session is flagged. "
                     "Please run: python setup_sessions.py  and refresh the Wellfound session."

@@ -29,7 +29,7 @@ def _make_profile() -> UserProfile:
         notice_period="Immediate", location_preference="Remote",
         work_authorization="Authorized to work in India",
         skills=["Python", "Node.js", "Firebase"],
-        resume_pdf_path="templates/MuditCV.pdf",
+        resume_pdf_path="templates/resume.pdf",
         summary="Backend dev with 2 years of experience.",
     )
 

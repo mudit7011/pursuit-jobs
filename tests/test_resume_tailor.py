@@ -32,7 +32,7 @@ def test_extract_latex_no_fences():
     assert result == "\\documentclass{article}"
 
 def test_save_pdf_creates_file(tmp_path):
-    latex = open("templates/MuditCV.tex").read()
+    latex = open("templates/resume.example.tex").read()
     output_path = str(tmp_path / "test_resume.pdf")
     with patch("src.resume_tailor.model") as mock_model:
         mock_response = MagicMock()
