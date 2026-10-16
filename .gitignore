@@ -28,3 +28,4 @@ landing/design-src/
 *.db-shm
 .DS_Store
 !tests/fixtures/*.pdf
+.vercel

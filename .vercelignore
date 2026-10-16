@@ -1,0 +1,6 @@
+# Only the website is deployed; keep everything else (keys, sessions, data) off Vercel
+/*
+!/landing
+/landing/node_modules
+/landing/.next
+/landing/design-src

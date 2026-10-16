@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  <a href="https://pursuit-jobs.vercel.app">Website</a>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-black" alt="MIT licence"></a>
   <img src="https://img.shields.io/badge/python-3.12-black" alt="Python 3.12">
   <img src="https://img.shields.io/badge/node-20%2B-black" alt="Node 20+">
