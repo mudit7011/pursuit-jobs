@@ -1,4 +1,4 @@
-# Job Autopilot — Setup Guide
+# Pursuit setup guide
 
 ## Step 1: Telegram API Credentials
 
@@ -15,7 +15,7 @@
 ## Step 2: Generate Telegram Session String
 
 ```bash
-cd /Users/muditchaudhary/job-autopilot
+cd pursuit
 cp .env.example .env
 # Fill in TELEGRAM_API_ID and TELEGRAM_API_HASH first, then:
 python3 generate_session.py
@@ -52,20 +52,20 @@ TELEGRAM_GROUP_ID=-1001234567890
 1. Go to Gmail → Settings (gear icon) → See all settings
 2. Security tab → Enable 2-Step Verification (if not already)
 3. Security → Search "App passwords"
-4. Create → Select "Other" → Name it "job-autopilot"
+4. Create → Select "Other" → Name it "pursuit"
 5. Copy the 16-character password into `.env`:
    ```
-   GMAIL_ADDRESS=muditkumar7011@gmail.com
+   GMAIL_ADDRESS=you@gmail.com
    GMAIL_APP_PASSWORD=abcd efgh ijkl mnop
    ```
 
 ## Step 6: Google Drive Setup (for form resume uploads)
 
 1. Go to https://console.cloud.google.com
-2. Create a new project (name it "job-autopilot")
+2. Create a new project (name it "pursuit")
 3. Enable "Google Drive API" (search in APIs & Services)
 4. Go to IAM & Admin → Service Accounts → Create Service Account
-5. Name it "job-autopilot", click Done
+5. Name it "pursuit", click Done
 6. Click the service account → Keys tab → Add Key → JSON
 7. Download the JSON file
 
@@ -86,11 +86,13 @@ TELEGRAM_GROUP_ID=-1001234567890
 ## Step 7: Test Locally
 
 ```bash
-python3 -m pytest tests/ -v   # all 14 tests should pass
-python3 -m src.main            # starts monitoring — send a job message in the group to test
+JAC_HEADLESS=1 python3 -m pytest tests   # all tests should pass
+python3 -m src.main            # starts monitoring... send a job message in the group to test
 ```
 
-## Step 8: Deploy to Fly.io (Free)
+## Step 8 (optional): Run the bot on Fly.io
+
+This runs the bot only. The dashboard is meant to run on your own machine.
 
 ```bash
 # Install flyctl
@@ -102,8 +104,6 @@ fly auth signup   # or: fly auth login
 # Add credit card (required, but won't be charged on free tier)
 fly auth login --browser
 
-# Create GitHub private repo first, then:
-cd /Users/muditchaudhary/job-autopilot
 fly launch --no-deploy   # detects Dockerfile, sets up app
 
 # Set all secrets on Fly.io (replaces .env on cloud):
@@ -135,7 +135,7 @@ fly logs
 - You get a Telegram notification on your phone:
   ```
   ✅ Applied!
-  🏢 Aspire — SWE Intern
+  🏢 Aspire, SWE Intern
   📨 Via: form → https://people-jobs.com/...
   ```
 

@@ -1,0 +1,30 @@
+{
+  "name": "Your Name",
+  "email": "you@example.com",
+  "phone": "+91 00000 00000",
+  "linkedin": "https://linkedin.com/in/your-handle",
+  "github": "https://github.com/your-handle",
+  "portfolio": "",
+  "college": "Your University",
+  "degree": "B.Tech Computer Science",
+  "cgpa": "8.0",
+  "graduation_year": 2024,
+  "years_of_experience": 1,
+  "current_ctc": "6 LPA",
+  "expected_ctc": "10 LPA",
+  "notice_period": "Immediate",
+  "location_preference": "Bengaluru, Remote",
+  "work_authorization": "India",
+  "skills": ["Python", "TypeScript", "Node.js", "PostgreSQL", "AWS"],
+  "resume_pdf_path": "templates/resume.pdf",
+  "summary": "Backend engineer who builds APIs and data pipelines in Python and Node.js.",
+  "job_search": {
+    "keywords": ["software engineer", "backend developer"],
+    "locations": ["Bengaluru", "Remote"],
+    "experience_min": 0,
+    "experience_max": 2,
+    "blacklist_keywords": ["senior", "lead", "manager"]
+  },
+  "email_pitch": "I'm applying for the {role} role at {company}. Two or three lines about what you have built go here.\n\nPlease find my resume tailored for this role attached.",
+  "email_subject_note": "Immediate Joiner"
+}

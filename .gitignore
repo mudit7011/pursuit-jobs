@@ -10,6 +10,21 @@ output/
 *.key
 *.pem
 service-account*.json
-config/
+config/*
+!config/profile.example.json
 data/
 sessions/
+
+# Your own resume and its drafts and backups stay on your machine
+templates/resume.tex
+templates/drafts/
+templates/history/
+
+# Local tooling and big source images
+.claude/
+landing/design-src/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+!tests/fixtures/*.pdf
